@@ -3,17 +3,15 @@ import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-react-native';
 
 // Constants
-const MOBILE_NET_INPUT_WIDTH = 224;
-const MOBILE_NET_INPUT_HEIGHT = 224;
 const STOP_DATA_GATHER = -1;
 const CLASS_NAMES = ["0", "1"];
+const MOBILE_NET_INPUT_WIDTH = 224;
+const MOBILE_NET_INPUT_HEIGHT = 224;
 
 // Variables
 let mobilenet = undefined;
 let gatherDataState = STOP_DATA_GATHER;
 let videoPlaying = false;
-let trainingDataInputs = [];
-let trainingDataOutputs = [];
 let examplesCount = [];
 let predict = false;
 
@@ -29,7 +27,8 @@ export async function loadMobileNetFeatureModel() {
     let answer = mobilenet.predict(tf.zeros([1, MOBILE_NET_INPUT_HEIGHT, MOBILE_NET_INPUT_WIDTH, 3]));
     console.log(answer.shape);
   });
-  return 'MobileNet v3 loaded successfully!';
+
+  return mobilenet;
 }
 
 // Model head
