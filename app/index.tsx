@@ -1,56 +1,49 @@
 import React from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-react-native';
 
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ml from '../scripts/ml';
 
-export default class Index extends React.Component {
-  // References and constants
-  status: React.RefObject<HTMLParagraphElement | null>;
-  video: React.RefObject<HTMLVideoElement | null>;
+export default function Index() {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [isTfReady, setIsTfReady] = React.useState(false);
+  const status = React.useRef<HTMLParagraphElement | null>(null);
+  const camera = React.useRef<CameraView | null>(null);
 
-  // Props handling
-  constructor(props: {}) {
-    super(props);
-    this.state = {
-      isTfReady: false,
+  React.useEffect(() => {
+    const prepare = async () => {
+      await tf.ready();
+      setIsTfReady(true);
+      console.log("TensorFlow.js is ready");
+
+      // Loading the MobileNet feature model
+      ml.loadMobileNetFeatureModel().then((res) => {
+        if (status.current == null) return;
+        status.current.innerText = res;
+      }).catch((err) => {
+        console.error("Error loading MobileNet feature model:", err);
+      });
     };
+    prepare();
+  }, []);
 
-    // References
-    this.status = React.createRef();
-    this.video = React.createRef();
-  }
+  const trainAndPredict = () => {
+    // TODO
+  };
 
-  async componentDidMount() {
-    await tf.ready();
-    this.setState({ isTfReady: true });
-    console.log("TensorFlow.js is ready");
+  const gatherDataForClass = (dataClass: string) => {
+    // TODO
+  };
 
-    // Loading the MobileNet feature model
-    ml.loadMobileNetFeatureModel().then((res) => {
-      if (this.status.current == null) return;
-      this.status.current.innerText = res;
-    }).catch((err) => {
-      console.error("Error loading MobileNet feature model:", err);
-    });
-  }
-  
-  enableCam() { // TODO
-  }
-
-  trainAndPredict() { // TODO
-  }
-
-  gatherDataForClass(dataClass : string) { // TODO
-  }
-
-  reset(){ // TODO
-  }
+  const reset = () => {
+    // TODO
+  };
 
   // TODO: Mouseover = TouchEnter
-  render() {
+  if (!permission?.granted) {
     return (
       <View
         style={{
@@ -59,19 +52,36 @@ export default class Index extends React.Component {
           alignItems: "center",
         }}
       >
-        <h1>Make your own "Teachable Machine" using Transfer Learning with MobileNet v3 in TensorFlow.js using saved graph model from TFHub.</h1>
-    
-        <p ref={this.status} >Awaiting TF.js load</p>
-        
-        <video ref={this.video} autoPlay muted></video>
-        
-        <button id="enableCam" onClick={this.enableCam}>Enable Webcam</button>
-        <button className="dataCollector" data-1hot="0" data-name="Class 1" onMouseOver={() => this.gatherDataForClass("0")}>Gather Class 1 Data</button>
-        <button className="dataCollector" data-1hot="1" data-name="Class 2" onMouseOver={() => this.gatherDataForClass("1")}>Gather Class 2 Data</button>
-        <button id="train" onClick={this.trainAndPredict}>Train &amp; Predict!</button>
-        <button id="reset" onClick={this.reset}>Reset</button>
+        <h1>Camera permission is required to use this app.</h1>
+        <p>Please allow camera access in your device settings.</p>
       </View>
     );
   }
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <h1>Make your own "Teachable Machine" using Transfer Learning with MobileNet v3 in TensorFlow.js using saved graph model from TFHub.</h1>
   
-}
+      <p ref={status} >Awaiting TF.js load</p>
+      
+      <CameraView style={styles.camera} ref={camera} videoQuality="480p"/>
+      
+      <button className="dataCollector" data-1hot="0" data-name="Class 1" onMouseOver={() => gatherDataForClass("0")}>Gather Class 1 Data</button>
+      <button className="dataCollector" data-1hot="1" data-name="Class 2" onMouseOver={() => gatherDataForClass("1")}>Gather Class 2 Data</button>
+      <button id="train" onClick={trainAndPredict}>Train &amp; Predict!</button>
+      <button id="reset" onClick={reset}>Reset</button>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  camera: { 
+    flex: 1, 
+    width: '50%',}
+})
