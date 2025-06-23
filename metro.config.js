@@ -1,11 +1,10 @@
-const { getDefaultConfig } = require('metro-config');
-module.exports = (async () => {
-  const defaultConfig = await getDefaultConfig();
-  const { assetExts } = defaultConfig.resolver;
-  return {
-    resolver: {
-      // Add bin to assetExts
-      assetExts: [...assetExts, 'bin'],
-    }
-  };
-})();
+// Learn more https://docs.expo.io/guides/customizing-metro
+const { getDefaultConfig } = require('expo/metro-config');
+
+/** @type {import('expo/metro-config').MetroConfig} */
+const config = getDefaultConfig(__dirname);
+
+// Resolvers
+config.resolver.assetExts.push('bin')
+
+module.exports = config;
