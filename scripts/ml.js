@@ -4,7 +4,6 @@ import '@tensorflow/tfjs-react-native';
 
 // Constants
 const STOP_DATA_GATHER = -1;
-const CLASS_NAMES = ["0", "1"];
 const MOBILE_NET_INPUT_WIDTH = 224;
 const MOBILE_NET_INPUT_HEIGHT = 224;
 
@@ -25,26 +24,47 @@ export async function loadMobileNetFeatureModel() {
   // Warm up the model by passing zeros through it once.
   tf.tidy(function () {
     let answer = mobilenet.predict(tf.zeros([1, MOBILE_NET_INPUT_HEIGHT, MOBILE_NET_INPUT_WIDTH, 3]));
-    console.log(answer.shape);
   });
 
   return mobilenet;
 }
 
-// Model head
-let model = tf.sequential();
-model.add(tf.layers.dense({inputShape: [1024], units: 128, activation: 'relu'}));
-model.add(tf.layers.dense({units: CLASS_NAMES.length, activation: 'softmax'}));
+// Create a new model instance (don't define it at module level)
+export function createModel(numClasses) {
+  const model = tf.sequential();
+  model.add(tf.layers.dense({
+    inputShape: [1024], 
+    units: 128, 
+    activation: 'relu',
+    name: 'dense_layer' // Give it a unique name
+  }));
+  model.add(tf.layers.dense({
+    units: numClasses, 
+    activation: numClasses === 2 ? 'sigmoid' : 'softmax',
+    name: 'output_layer'
+  }));
 
-model.summary();
+  model.summary();
 
-// Compile the model with the defined optimizer and specify a loss function to use.
-model.compile({
-  // Adam changes the learning rate over time which is useful.
-  optimizer: 'adam',
-  // Use the correct loss function. If 2 classes of data, must use binaryCrossentropy.
-  // Else categoricalCrossentropy is used if more than 2 classes.
-  loss: (CLASS_NAMES.length === 2) ? 'binaryCrossentropy': 'categoricalCrossentropy', 
-  // As this is a classification problem you can record accuracy in the logs too!
-  metrics: ['accuracy']  
-});
+  return model;
+}
+
+// Get a compiled model
+export async function getModel(numClasses) {
+  const newModel = await createModel(numClasses);
+  newModel.compile({
+    optimizer: 'adam',
+    loss: numClasses === 2 ? 'binaryCrossentropy' : 'categoricalCrossentropy',
+    metrics: ['accuracy']
+  });
+  return newModel;
+}
+
+export async function fitModel(mod, inputs, classOutputs, outputs) {
+  return await mod.fit(inputs, classOutputs, {shuffle: true, batchSize: 5, epochs: 10, 
+      callbacks: {onEpochEnd: logProgress} });
+}
+
+function logProgress(epoch, logs) {
+    console.log(`Epoch ${epoch}: loss = ${logs.loss}, accuracy = ${logs.acc}`);
+}
