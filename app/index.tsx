@@ -1,14 +1,17 @@
-import { CameraView, useCameraPermissions } from "expo-camera";
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { Button, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
+import { CameraView, useCameraPermissions } from "expo-camera";
 
 import * as tf from '@tensorflow/tfjs';
+import { decodeJpeg } from '@tensorflow/tfjs-react-native';
 
 import * as util from '../scripts/util';
 
 const MOBILENET_MODEL_PATH = 'https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_100_224/classification/3/default/1';
 const IMAGE_SIZE = 224;
-const TOPK_PREDICTIONS = 10;
+const TOPK_PREDICTIONS = 5;
 
 export default function Index() {
   // Permissions
@@ -17,13 +20,11 @@ export default function Index() {
   // States
   const [isTfReady, setIsTfReady] = React.useState(false);
   const [mobileNet, setMobileNet] = React.useState<tf.GraphModel | null>(null)
-  const [predict, setPredict] = React.useState(false);
-  const [model, setModel] = React.useState<tf.Sequential | null>(null);
+  const [predsView, setPredictions] = React.useState<any[]>([]);
+  const [predictActive, setPredActive] = React.useState<boolean>(true);
 
   // Refs
-  const predsDiv = React.useRef<HTMLDivElement | null>(null);
   const camera = React.useRef<CameraView | null>(null);
-
 
   React.useEffect(() => {
     const prepare = async () => {
@@ -37,81 +38,85 @@ export default function Index() {
         // Warm up the model
         let predict = model.predict(tf.zeros([1, IMAGE_SIZE, IMAGE_SIZE, 3])) as tf.Tensor; 
         predict.dispose();
+        console.log("MobileNet is ready.")
+        setPredActive(false);
       });
-
+      requestPermission();
     };
 
     prepare();
   }, []);
 
   async function predictImg(){
-    console.log("Predicting...");
+    const predsView = (
+      <View key={"waiting"}>
+        <Text>Awaiting results.</Text>
+      </View>
+    )
+    setPredictions([predsView])
 
-    tf.tidy(() => {
-      if (camera.current == null || mobileNet == null) {
-        console.log("Camera or MobileNet is not ready.");
-        return;
-      }
+    // Take a picture from the camera and process it
+    if (camera.current == null) {
+      console.log("Camera is not ready.");
+      return;
+    }
+    const image = await camera.current.takePictureAsync({base64: true, skipProcessing: true});
 
-      const image = camera.current.takePictureAsync({}).then(image => {
-        // Convert to tf-able image data
-        let imgData = {
-          data: util.base64ToUint8Array(image.base64),
-          width: image.width,
-          height: image.height,
-        };
-
-        const img = tf.cast(tf.browser.fromPixels(imgData), 'float32');
-        const resized = tf.image.resizeBilinear(img, [IMAGE_SIZE, IMAGE_SIZE], true);
-        const offset = tf.scalar(127.5);
-        const normalized = resized.sub(offset).div(offset);
-        const batched = normalized.reshape([1, IMAGE_SIZE, IMAGE_SIZE, 3]);
-
-        let logits = mobileNet.predict(batched);
-
-        util.getTopKClasses(logits, TOPK_PREDICTIONS).then((classes) => {
-          showResults(classes);
-        });
-      
+    // Convert to Tensor-able image
+    let imgTensor: any;
+    if (Platform.OS === 'web') { // Web = use HTML Image
+      const imgData = new Image();
+      imgData.src = `${image.base64}`;
+      await new Promise((resolve) => { // resolve the promise first
+        imgData.onload = resolve;
       });
+
+      imgTensor = tf.browser.fromPixels(imgData);
+    } else { // Mobile = encoding magic
+      if (image.base64 == null) { // Error handling
+        console.warn("Image base64 is null. Ensure the camera is working correctly.");
+        return;
+      };
+      const imgBuffer = tf.util.encodeString(image.base64, 'base64').buffer;                  
+      const raw = new Uint8Array(imgBuffer);
+      imgTensor = decodeJpeg(raw); // Decode the JPEG
+    }
+
+    const tensor = tf.tidy(() => {
+        const resized = tf.image.resizeBilinear(imgTensor, [224, 224]);
+        const normalized = resized.toFloat().div(tf.scalar(127)).sub(tf.scalar(1));
+        return normalized.expandDims(0);
     });
 
+    // Predictions
+    if (mobileNet == null) {
+      console.warn("MobileNet model is not loaded.");
+      return;
+    }
+    const logits = mobileNet.predict(tensor) as tf.Tensor;
+    const classes = await util.getTopKClasses(logits, TOPK_PREDICTIONS);
+
+    showResults(classes);
+
+    logits.dispose();
+    tensor.dispose();
   }
 
   const showResults = (classes: any[]) => {
-    if (predsDiv.current == null) {
-      console.warn("Predictions div is not ready.");
-      return;
-    }
-
-    // Clear previous predictions
-    predsDiv.current.innerHTML = '';
-
-    let predictionContainer: HTMLDivElement = document.createElement('div');
-    predictionContainer.className = 'pred-container';
-
-    let probsContainer : HTMLDivElement = document.createElement('div');
+    let probsContainer : any[] = [];
     for (let i = 0; i < classes.length; i++) {
-      const row: HTMLDivElement = document.createElement('div');
-      row.className = 'row';
-
-      const classElement: HTMLDivElement = document.createElement('div');
-      classElement.className = 'cell';
-      classElement.innerText = classes[i].className;
-      row.appendChild(classElement);
-
-      const probsElement: HTMLDivElement = document.createElement('div');
-      probsElement.className = 'cell';
-      probsElement.innerText = classes[i].probability.toFixed(3);
-      row.appendChild(probsElement);
-
-      probsContainer.appendChild(row);
+     probsContainer.push(formatPreds(i, classes[i].className, classes[i].probability));
     }
-    predictionContainer.appendChild(probsContainer);
+    setPredictions(probsContainer);
+  }
 
-    predsDiv.current.insertBefore(
-      predictionContainer,
-      predsDiv.current.firstChild
+  // Display each prediction
+  const formatPreds = (listNo: number, predict: string, probability: number) => {
+    return (
+      <View key={listNo} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 16 }}>{predict}</Text>
+        <Text style={{ fontSize: 16 }}>{probability.toFixed(3)}</Text>
+      </View>
     )
   }
 
@@ -125,32 +130,36 @@ export default function Index() {
           alignItems: "center",
         }}
       >
-        <h1>Camera permission is required to use this app.</h1>
-        <p>Please allow camera access in your device settings.</p>
+        <Text>Camera permission is required to use this app.</Text>
+        <Text>Please allow camera access in your device settings.</Text>
       </View>
     );
   }
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >      
-      <CameraView style={styles.camera} ref={camera} videoQuality="4:3"/>
-      <button id="train" onClick={predictImg}> Predict!</button>
+    <SafeAreaProvider style={{ flex: 1 }}>
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >      
+        <CameraView style={styles.camera} ref={camera} videoQuality="4:3"/>
+        <Button title="Predict!" onPress={predictImg} disabled={predictActive}/>
 
-      <div style={styles.predictions} ref={predsDiv} id="predictions"></div>
-    </View>
+        <View>
+          {predsView}
+        </View>
+      </ScrollView>
+    </SafeAreaProvider>
   );
 };
 
 const styles = StyleSheet.create({
   camera: {  
     width: 640,
-    height: 480,},
+    height: 480},
   predictions: {
-    width: '50%'}
+    width: '50%'},
 })
