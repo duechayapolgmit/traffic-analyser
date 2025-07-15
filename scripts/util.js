@@ -15,8 +15,9 @@ export function base64ToUint8Array(base64) {
   return bytes;
 }
 
-export async function getTopKClasses(logits, topK) {
+export async function getTopKClasses(logits, topK, classes) {
   const values = await logits.data();
+  console.log("Finished predicting")
 
   const valuesAndIndices = [];
   for (let i = 0; i < values.length; i++) {
@@ -35,7 +36,7 @@ export async function getTopKClasses(logits, topK) {
   const topClassesAndProbs = [];
   for (let i = 0; i < topkIndices.length; i++) {
     topClassesAndProbs.push({
-      className: IMAGENET_CLASSES[topkIndices[i]],
+      className: classes[topkIndices[i]],
       probability: topkValues[i]
     })
   }
