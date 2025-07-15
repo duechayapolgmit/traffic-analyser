@@ -5,6 +5,6 @@ const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
 
 // Resolvers
-config.resolver.assetExts.push('bin')
+config.resolver.assetExts.push('bin', 'tflite', 'png', 'jpg')
 
 module.exports = config;

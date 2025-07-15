@@ -1,125 +1,148 @@
-// Implementation adapted from: https://github.com/tensorflow/tfjs-examples/blob/master/react-native/pose-detection/App.tsx#L18
 import React, { useState } from "react";
-import { Dimensions, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
+import { CameraType, useCameraPermissions } from "expo-camera";
 import * as ScreenOrientation from 'expo-screen-orientation';
 
-import * as tf from '@tensorflow/tfjs';
-import { cameraWithTensors } from '@tensorflow/tfjs-react-native';
+import { useTensorflowModel } from 'react-native-fast-tflite';
+import { Camera, CameraDevice, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
+import { Worklets } from 'react-native-worklets-core';
+import { useResizePlugin } from 'vision-camera-resize-plugin';
 
-import { ExpoWebGLRenderingContext } from "expo-gl";
-import * as util from '../scripts/util';
+import { Canvas, Rect } from '@shopify/react-native-skia';
+import { TypedArray } from "expo-modules-core";
 
-const MOBILENET_MODEL_PATH = 'https://www.kaggle.com/models/google/mobilenet-v3/TfJs/large-100-224-classification/1';
-const TOPK_PREDICTIONS = 5;
+import { COCO_CLASSES } from '../scripts/classes';
 
-const TensorCamera = cameraWithTensors(CameraView);
-const CAM_PREVIEW_WIDTH = Dimensions.get('window').width;
-const CAM_PREVIEW_HEIGHT = CAM_PREVIEW_WIDTH / (3 / 4); // Android only
-const AUTO_RENDER = true; // auto-render TensorCamera preview
-
-const IMG_SIZE = 224;
+const IMG_SIZE = 384;
 
 export default function Index() {
   // Permissions
   const [permission, requestPermission] = useCameraPermissions();
 
   // States
-  const [isTfReady, setIsTfReady] = useState(false);
-  const [mobileNet, setMobileNet] = useState<tf.GraphModel>()
-  const [predsView, setPredictions] = useState<any[]>([]);
-  const [predictActive, setPredActive] = useState<boolean>(true);
-  const [fps, setFps] = useState(0);
-  const [orientation, setOrientation] = useState<ScreenOrientation.Orientation>();
-  const [cameraType, setCameraType] = useState<CameraType>('back');
+  const [fps, setFps] = useState<number>(0);
+  const [topPred, setTopPred] = useState<string>("");
 
-  // Refs
-  const camera = React.useRef(null);
+  // Model
+  const model = useTensorflowModel(require('../assets/model/model_efficientdet.tflite'));
+  const actualModel = model.state === 'loaded' ? model.model : undefined;
+
+  // Ref
+  const preds = React.useRef<Canvas>(null);
+
+  // Other bits
+  const { resize } = useResizePlugin();
+  const device = useCameraDevice('back') as CameraDevice;
 
   React.useEffect(() => {
-    const prepare = async () => {
-      // Orientation
-      const curOrientation = await ScreenOrientation.getOrientationAsync();
-      setOrientation(curOrientation);
-      ScreenOrientation.addOrientationChangeListener((event) => {setOrientation(event.orientationInfo.orientation)});
-      
-      // Camera Permissions
-      requestPermission();
+    if (actualModel == null) return;
+    console.log('Model has been loaded');
+  }, [actualModel]);
 
-      // Load TensorFlow
-      await tf.ready();
-      if (Platform.OS != 'web') tf.setBackend('wasm');
-      setIsTfReady(true);
-      console.log("TensorFlow.js is ready");
-      tf.env().set('WEBGL_PACK_DEPTHWISECONV', false)
+  React.useEffect(() => {
+    requestPermission();
+  }, [requestPermission])
 
-      // Load the MobileNet model from TensorFlow Hub
-      tf.loadGraphModel(MOBILENET_MODEL_PATH, { fromTFHub: true }).then((model) => {
-        setMobileNet(model);
-        // Warm up the model
-        let predict = model.predict(tf.zeros([1, IMG_SIZE, IMG_SIZE, 3])) as tf.Tensor;
-        predict.dataSync();
-        predict.dispose();
-        console.log("MobileNet is ready.")
-        setPredActive(false);
-      });
-    };
-    prepare();
-  }, []);
+  function generateRects(detection_boxes: TypedArray): void {
+    const canvasContainer: React.ReactElement[] = [];
 
-  async function handleCameraStream(images: IterableIterator<tf.Tensor3D>, updatePreview: () => void, gl: ExpoWebGLRenderingContext){
-    const loop = async () => {
-      if (mobileNet != null) {
-        console.log('exists')
-        const imgTensor = images.next().value as tf.Tensor3D;
-        
-        const startTime = Date.now();
-        const logits = mobileNet.predict(imgTensor) as tf.Tensor;
-        const classMetadata = mobileNet.metadata as {[key:string]:any};
-        const classes = await util.getTopKClasses(logits, TOPK_PREDICTIONS, classMetadata['classNames']);
-        const latency = Date.now() - startTime;
-        setFps(Math.floor(1000 / latency));
+    for (let i = 0; i < detection_boxes.length; i += 4) {
+      const left = detection_boxes[i];
+      const top = detection_boxes[i + 1];
+      const right = detection_boxes[i + 2];
+      const bottom = detection_boxes[i + 3];
+      const width = right - left;
+      const height = bottom - top;
 
-        showResults(classes);
-        
-        tf.dispose([imgTensor, logits]);
-      }
-      requestAnimationFrame(loop);
-    };
-
-    loop();
-  }
-
-  const showResults = (classes: any[]) => {
-    let probsContainer : any[] = [];
-    for (let i = 0; i < classes.length; i++) {
-     probsContainer.push(formatPreds(i, classes[i].className, classes[i].probability));
+      canvasContainer.push(
+        <Rect x={left} y={top} width={width} height={height} color="red" />
+      );
     }
-    setPredictions(probsContainer);
-  }
 
-  // Display each prediction
-  const formatPreds = (listNo: number, predict: string, probability: number) => {
-    return (
-      <View key={listNo} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ fontSize: 16 }}>{predict}</Text>
-        <Text style={{ fontSize: 16 }}>{probability.toFixed(3)}</Text>
-      </View>
-    )
+    preds.current = canvasContainer;
   }
+  const generateRectsJS = Worklets.createRunOnJS(generateRects)
+
+  // JS state updates
+  const updateFps = Worklets.createRunOnJS((fps: number) => {
+    setFps(fps);
+  });
+  const updateTopPred = Worklets.createRunOnJS((top: string) => {
+    setTopPred(top)
+  })
+
+  
+  const frameProcessor = useFrameProcessor( (frame) => {
+    'worklet'
+    if (actualModel == null) return;
+
+    // Start timer for FPS
+    const startTime = Date.now();
+
+    // Resize the image
+    const resized = resize(frame, { 
+      scale: { 
+        width: IMG_SIZE, 
+        height: IMG_SIZE
+      }, 
+      pixelFormat: 'rgb', 
+      dataType: 'uint8'});
+    
+    // Outputs and interpretation
+    const outputs = actualModel.runSync([resized])
+    const detection_boxes = outputs[0] as TypedArray;
+    const detection_classes = outputs[1]
+    const detection_scores = outputs[2];
+    const num_detections = outputs[3]
+
+    console.log(`Detected ${num_detections[0]} objects!`)
+
+    let logMessage = '→ ';
+    for (let i = 0; i < num_detections[0]; i++) {
+      const classIndex = Math.round(Number(detection_classes[i]));
+      const score = detection_scores[i] as number;
+      const label = COCO_CLASSES[classIndex] ?? 'unknown';
+      logMessage += `${label} (${(score * 100).toFixed(1)}%)`;
+
+      if (i < Number(num_detections[0]) - 1) {
+        logMessage += ', ';
+      }
+
+      // Set top pred if i = 0
+      if (i == 0) updateTopPred(label)
+    }
+
+    console.log(logMessage);
+
+    //generateRectsJS(detection_boxes);
+
+    // Duration
+    const duration = Date.now() - startTime;
+    updateFps(1000 / duration)
+  }, [model])
+
 
   // FPS counter
   const renderFps = () => {
     return (
       <View style={styles.fpsContainer}>
-        <Text>FPS: {fps}</Text>
+        <Text>FPS: {parseInt(fps)}</Text>
       </View>
     )
   }
 
-  // TODO: Mouseover = TouchEnter
+  // Top prediction
+  const renderTopPreds = () => {
+    return (
+      <View style={styles.predsContainer}>
+        <Text>Top Pred: {topPred}</Text>
+      </View>
+    )
+  }
+
+  // Permission screen
   if (!permission?.granted) {
     return (
       <View
@@ -144,23 +167,11 @@ export default function Index() {
           alignItems: "center",
         }}
       >      
-        <TensorCamera
-          ref={camera}
-          style={styles.camera}
-          autorender={AUTO_RENDER}
-          facing={cameraType}
-          resizeWidth={IMG_SIZE}
-          resizeHeight={IMG_SIZE}
-          resizeDepth={3}
-          cameraTextureHeight={1920}
-          cameraTextureWidth={1080}
-          useCustomShadersToResize={false}
-          onReady={handleCameraStream}/>
+        <Camera style={StyleSheet.absoluteFill} device={device} isActive={true} frameProcessor={frameProcessor} pixelFormat="yuv"/>
+        <Canvas ref={preds} style={styles.canvas}/>
 
-        <View style={styles.predictions}>
-          {predsView}
-        </View>
         {renderFps()}
+        {renderTopPreds()}
       </ScrollView>
     </SafeAreaProvider>
   );
@@ -170,22 +181,27 @@ const styles = StyleSheet.create({
   camera: {  
     width: '100%',
     height: '80%'},
-  predictions: {
+  canvas:{
+    ...StyleSheet.absoluteFillObject, 
+    zIndex: 1000,
+    backgroundColor: 'transparent'
+  },
+  fpsContainer: {
     position: 'absolute',
-    top: 50,
+    top: 30,
     left: 10,
-    width: 300,
+    width: 80,
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, .7)',
     borderRadius: 2,
     padding: 8,
-    zIndex: 20,},
-  fpsContainer: {
+    zIndex: 20,
+  },
+  predsContainer: {
     position: 'absolute',
-    top: 10,
+    top: 70,
     left: 10,
-    width: 80,
-    alignItems: 'center',
+    width: 150,
     backgroundColor: 'rgba(255, 255, 255, .7)',
     borderRadius: 2,
     padding: 8,
