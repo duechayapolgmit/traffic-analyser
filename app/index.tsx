@@ -1,20 +1,20 @@
 import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { CameraType, useCameraPermissions } from "expo-camera";
-import * as ScreenOrientation from 'expo-screen-orientation';
+import { useCameraPermissions } from "expo-camera";
 
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { Camera, CameraDevice, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
 import { Worklets } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 
-import { Canvas, Rect } from '@shopify/react-native-skia';
+import { Canvas, Rect, useCanvasRef } from '@shopify/react-native-skia';
 import { TypedArray } from "expo-modules-core";
 
 import { COCO_CLASSES } from '../scripts/classes';
 
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const IMG_SIZE = 384;
 
 export default function Index() {
@@ -24,17 +24,22 @@ export default function Index() {
   // States
   const [fps, setFps] = useState<number>(0);
   const [topPred, setTopPred] = useState<string>("");
+  const [numDetect, setNumDetect] = useState<number>(0);
+  const [predBoxes, setBoxes] = useState<TypedArray>();
+  const [predScores, setScores] = useState<TypedArray>();
+  const [predClasses, setClasses] = useState<TypedArray>();
 
   // Model
   const model = useTensorflowModel(require('../assets/model/model_efficientdet.tflite'));
   const actualModel = model.state === 'loaded' ? model.model : undefined;
 
   // Ref
-  const preds = React.useRef<Canvas>(null);
+  const preds = useCanvasRef();
 
   // Other bits
   const { resize } = useResizePlugin();
   const device = useCameraDevice('back') as CameraDevice;
+  let boxes = [];
 
   React.useEffect(() => {
     if (actualModel == null) return;
@@ -45,35 +50,17 @@ export default function Index() {
     requestPermission();
   }, [requestPermission])
 
-  function generateRects(detection_boxes: TypedArray): void {
-    const canvasContainer: React.ReactElement[] = [];
-
-    for (let i = 0; i < detection_boxes.length; i += 4) {
-      const left = detection_boxes[i];
-      const top = detection_boxes[i + 1];
-      const right = detection_boxes[i + 2];
-      const bottom = detection_boxes[i + 3];
-      const width = right - left;
-      const height = bottom - top;
-
-      canvasContainer.push(
-        <Rect x={left} y={top} width={width} height={height} color="red" />
-      );
-    }
-
-    preds.current = canvasContainer;
-  }
-  const generateRectsJS = Worklets.createRunOnJS(generateRects)
-
   // JS state updates
-  const updateFps = Worklets.createRunOnJS((fps: number) => {
-    setFps(fps);
-  });
-  const updateTopPred = Worklets.createRunOnJS((top: string) => {
-    setTopPred(top)
+  const updateFps = Worklets.createRunOnJS((fps: number) => {setFps(fps)});
+  const updateTopPred = Worklets.createRunOnJS((top: string, score: number) => {
+    let str = `${top} (${(score * 100).toFixed(1)}%)`
+    setTopPred(str)
   })
+  const updateNumDetect = Worklets.createRunOnJS((count: number) => {setNumDetect(count)})
+  const updateBoxes = Worklets.createRunOnJS((boxes: TypedArray) => {setBoxes(boxes)})
+  const updateScores = Worklets.createRunOnJS((scores: TypedArray) => {setScores(scores)})
+  const updateClasses = Worklets.createRunOnJS((classes: TypedArray) => {setClasses(classes)})
 
-  
   const frameProcessor = useFrameProcessor( (frame) => {
     'worklet'
     if (actualModel == null) return;
@@ -93,11 +80,9 @@ export default function Index() {
     // Outputs and interpretation
     const outputs = actualModel.runSync([resized])
     const detection_boxes = outputs[0] as TypedArray;
-    const detection_classes = outputs[1]
-    const detection_scores = outputs[2];
+    const detection_classes = outputs[1] as TypedArray;
+    const detection_scores = outputs[2] as TypedArray;
     const num_detections = outputs[3]
-
-    console.log(`Detected ${num_detections[0]} objects!`)
 
     let logMessage = '→ ';
     for (let i = 0; i < num_detections[0]; i++) {
@@ -111,24 +96,24 @@ export default function Index() {
       }
 
       // Set top pred if i = 0
-      if (i == 0) updateTopPred(label)
+      if (i == 0) updateTopPred(label, score)
     }
 
-    console.log(logMessage);
-
-    //generateRectsJS(detection_boxes);
+    updateNumDetect(Number(num_detections))
+    updateBoxes(detection_boxes)
+    updateScores(detection_scores)
+    updateClasses(detection_classes)
 
     // Duration
     const duration = Date.now() - startTime;
     updateFps(1000 / duration)
   }, [model])
 
-
   // FPS counter
   const renderFps = () => {
     return (
       <View style={styles.fpsContainer}>
-        <Text>FPS: {parseInt(fps)}</Text>
+        <Text>FPS: {String(fps.toFixed(1))}</Text>
       </View>
     )
   }
@@ -141,6 +126,81 @@ export default function Index() {
       </View>
     )
   }
+
+  const renderDetections = () => {
+    if (predBoxes == null || predScores == null) {
+      console.log('No detections')
+      return null;
+    }
+    const elements = [];
+    const arrayLength = numDetect * 4;
+
+    let currentItem = 0;
+    for (let i = 0; i < arrayLength; i += 4) {
+      // Scale coordinates from model output (0-1 range) to screen dimensions
+      const left = predBoxes[i] * screenWidth;
+      const top = predBoxes[i + 1] * screenHeight;
+      const right = predBoxes[i + 2] * screenWidth;
+      const bottom = predBoxes[i + 3] * screenHeight;
+      const width = right - left;
+      const height = bottom - top;
+
+      if (predScores[Math.round(i / 4)] < 0.5) continue;
+
+      elements.push(
+        <Rect
+          key={`rect-${i}`}
+          x={left}
+          y={top}
+          width={width}
+          height={height}
+          color="red"
+          style="stroke"
+          strokeWidth={2}
+        />
+      );
+      currentItem += 1;
+    }
+
+    return elements;
+  };
+
+  const renderLabels = () => {
+    if (predBoxes == null || predScores == null || predClasses == null) return null;
+    const labels = [];
+    const arrayLength = numDetect * 4;
+
+    for (let i = 0; i < arrayLength; i += 4) {
+      const left = predBoxes[i] * screenWidth;
+      const bottom = predBoxes[i + 3] * screenHeight;
+      const classIndex = Math.round(predClasses[i / 4]);
+      const score = predScores[i / 4];
+      const label = COCO_CLASSES[classIndex] ?? 'unknown';
+      const accuracyText = `${(score * 100).toFixed(1)}%`;
+
+      if (predScores[Math.round(i / 4)] < 0.5) continue;
+
+      labels.push(
+        <View 
+          key={`label-container-${i}`}
+          style={{
+            position: 'absolute',
+            left: left,
+            top: bottom + 5,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            paddingHorizontal: 4,
+            borderRadius: 2,
+          }}
+        >
+          <Text style={{ color: 'white', fontSize: 12 }}>
+            {label} {accuracyText}
+          </Text>
+        </View>
+      );
+    }
+
+    return labels;
+  };
 
   // Permission screen
   if (!permission?.granted) {
@@ -168,7 +228,12 @@ export default function Index() {
         }}
       >      
         <Camera style={StyleSheet.absoluteFill} device={device} isActive={true} frameProcessor={frameProcessor} pixelFormat="yuv"/>
-        <Canvas ref={preds} style={styles.canvas}/>
+        <Canvas style={[StyleSheet.absoluteFill, { width: screenWidth, height: screenHeight }]}>
+          {renderDetections()}
+        </Canvas>
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          {renderLabels()}
+        </View>
 
         {renderFps()}
         {renderTopPreds()}
