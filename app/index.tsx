@@ -14,8 +14,23 @@ import { TypedArray } from "expo-modules-core";
 
 import { COCO_CLASSES } from '../scripts/classes';
 
+interface ScreenObject {
+  box: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
+  category: string;
+  direction?: 'STILL' | 'LEFT' | 'RIGHT'
+  frames?: number;
+  checked?: boolean;
+  score: number;
+}
+
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const IMG_SIZE = 384;
+const TOLERANCE = 0.5;
 
 export default function Index() {
   // Permissions
@@ -24,10 +39,8 @@ export default function Index() {
   // States
   const [fps, setFps] = useState<number>(0);
   const [topPred, setTopPred] = useState<string>("");
-  const [numDetect, setNumDetect] = useState<number>(0);
-  const [predBoxes, setBoxes] = useState<TypedArray>();
-  const [predScores, setScores] = useState<TypedArray>();
-  const [predClasses, setClasses] = useState<TypedArray>();
+  const [prevObjs, setPrevObjs] = useState<ScreenObject[]>();
+  const [currObjs, setCurrObjs] = useState<ScreenObject[]>();
 
   // Model
   const model = useTensorflowModel(require('../assets/model/model_efficientdet.tflite'));
@@ -39,7 +52,6 @@ export default function Index() {
   // Other bits
   const { resize } = useResizePlugin();
   const device = useCameraDevice('back') as CameraDevice;
-  let boxes = [];
 
   React.useEffect(() => {
     if (actualModel == null) return;
@@ -56,10 +68,8 @@ export default function Index() {
     let str = `${top} (${(score * 100).toFixed(1)}%)`
     setTopPred(str)
   })
-  const updateNumDetect = Worklets.createRunOnJS((count: number) => {setNumDetect(count)})
-  const updateBoxes = Worklets.createRunOnJS((boxes: TypedArray) => {setBoxes(boxes)})
-  const updateScores = Worklets.createRunOnJS((scores: TypedArray) => {setScores(scores)})
-  const updateClasses = Worklets.createRunOnJS((classes: TypedArray) => {setClasses(classes)})
+  const updatePrevObjs = Worklets.createRunOnJS((objs: ScreenObject[]) => {setPrevObjs(objs)});
+  const updateCurrObjs = Worklets.createRunOnJS((objs: ScreenObject[]) => {setCurrObjs(objs)});
 
   const frameProcessor = useFrameProcessor( (frame) => {
     'worklet'
@@ -82,27 +92,36 @@ export default function Index() {
     const detection_boxes = outputs[0] as TypedArray;
     const detection_classes = outputs[1] as TypedArray;
     const detection_scores = outputs[2] as TypedArray;
-    const num_detections = outputs[3]
+    const num_detections = outputs[3];
 
-    let logMessage = '→ ';
-    for (let i = 0; i < num_detections[0]; i++) {
-      const classIndex = Math.round(Number(detection_classes[i]));
-      const score = detection_scores[i] as number;
-      const label = COCO_CLASSES[classIndex] ?? 'unknown';
-      logMessage += `${label} (${(score * 100).toFixed(1)}%)`;
+    // Process the outputs to ScreenObject
+    let objs: ScreenObject[] = [];
+    for (let i = 0; i < Number(num_detections[0]) * 4; i+= 4) {
+      const currentIndex = Math.round(i / 4); // separate from the loop itself - for index 1, 2, 3, and not increments of 4
 
-      if (i < Number(num_detections[0]) - 1) {
-        logMessage += ', ';
+      if (detection_scores[currentIndex] < TOLERANCE) continue;
+
+      // Scale according to screen size - output from model is 0-1
+      const left = detection_boxes[i] * screenWidth;
+      const top = detection_boxes[i + 1] * screenHeight;
+      const right = detection_boxes[i + 2] * screenWidth;
+      const bottom = detection_boxes[i + 3] * screenHeight;
+
+      const category = COCO_CLASSES[currentIndex] ?? 'unknown';
+      const score = detection_scores[currentIndex] as number;
+
+      const screenObj: ScreenObject = {
+        box: {left: left, right: right, top: top, bottom: bottom},
+        category: category,
+        score: score
       }
+      objs.push(screenObj);
 
       // Set top pred if i = 0
-      if (i == 0) updateTopPred(label, score)
+      if (i == 0) updateTopPred(category, score)
     }
 
-    updateNumDetect(Number(num_detections))
-    updateBoxes(detection_boxes)
-    updateScores(detection_scores)
-    updateClasses(detection_classes)
+    updateCurrObjs(objs);
 
     // Duration
     const duration = Date.now() - startTime;
@@ -127,31 +146,24 @@ export default function Index() {
     )
   }
 
+  // Renders boxes for current objects
   const renderDetections = () => {
-    if (predBoxes == null || predScores == null) {
+    if (currObjs == null) {
       console.log('No detections')
       return null;
     }
     const elements = [];
-    const arrayLength = numDetect * 4;
 
-    let currentItem = 0;
-    for (let i = 0; i < arrayLength; i += 4) {
-      // Scale coordinates from model output (0-1 range) to screen dimensions
-      const left = predBoxes[i] * screenWidth;
-      const top = predBoxes[i + 1] * screenHeight;
-      const right = predBoxes[i + 2] * screenWidth;
-      const bottom = predBoxes[i + 3] * screenHeight;
-      const width = right - left;
-      const height = bottom - top;
-
-      if (predScores[Math.round(i / 4)] < 0.5) continue;
+    for (let i = 0; i < currObjs.length; i++) {
+      const currObj = currObjs[i]
+      const width = currObj.box.right - currObj.box.left;
+      const height = currObj.box.bottom - currObj.box.top;
 
       elements.push(
         <Rect
           key={`rect-${i}`}
-          x={left}
-          y={top}
+          x={currObj.box.left}
+          y={currObj.box.top}
           width={width}
           height={height}
           color="red"
@@ -159,47 +171,44 @@ export default function Index() {
           strokeWidth={2}
         />
       );
-      currentItem += 1;
     }
 
     return elements;
   };
 
+  // Render labels for current objects
   const renderLabels = () => {
-    if (predBoxes == null || predScores == null || predClasses == null) return null;
-    const labels = [];
-    const arrayLength = numDetect * 4;
+    if (currObjs == null) {
+      console.log('No detections')
+      return null;
+    }
+    const elements = [];
 
-    for (let i = 0; i < arrayLength; i += 4) {
-      const left = predBoxes[i] * screenWidth;
-      const bottom = predBoxes[i + 3] * screenHeight;
-      const classIndex = Math.round(predClasses[i / 4]);
-      const score = predScores[i / 4];
-      const label = COCO_CLASSES[classIndex] ?? 'unknown';
-      const accuracyText = `${(score * 100).toFixed(1)}%`;
+    for (let i = 0; i < currObjs.length; i++) {
+      const currObj = currObjs[i];
 
-      if (predScores[Math.round(i / 4)] < 0.5) continue;
+      const accuracyText = `${(currObj.score * 100).toFixed(1)}%`;
 
-      labels.push(
+      elements.push(
         <View 
           key={`label-container-${i}`}
           style={{
             position: 'absolute',
-            left: left,
-            top: bottom + 5,
+            left: currObj.box.left,
+            top: currObj.box.bottom + 5,
             backgroundColor: 'rgba(0,0,0,0.5)',
             paddingHorizontal: 4,
             borderRadius: 2,
           }}
         >
           <Text style={{ color: 'white', fontSize: 12 }}>
-            {label} {accuracyText}
+            {currObj.category} {accuracyText}
           </Text>
         </View>
       );
     }
 
-    return labels;
+    return elements;
   };
 
   // Permission screen
