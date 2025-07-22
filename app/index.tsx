@@ -9,7 +9,7 @@ import { Camera, CameraDevice, useCameraDevice, useFrameProcessor } from 'react-
 import { Worklets } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 
-import { Canvas, Rect, useCanvasRef } from '@shopify/react-native-skia';
+import { Canvas, Rect } from '@shopify/react-native-skia';
 import { TypedArray } from "expo-modules-core";
 
 import { COCO_CLASSES } from '../scripts/classes';
@@ -29,8 +29,9 @@ interface ScreenObject {
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-const IMG_SIZE = 384;
+const IMG_SIZE = 448; // lite2
 const TOLERANCE = 0.5;
+const HEIGHT_TOLERANCE = 0.3;
 
 export default function Index() {
   // Permissions
@@ -39,15 +40,14 @@ export default function Index() {
   // States
   const [fps, setFps] = useState<number>(0);
   const [topPred, setTopPred] = useState<string>("");
-  const [prevObjs, setPrevObjs] = useState<ScreenObject[]>();
-  const [currObjs, setCurrObjs] = useState<ScreenObject[]>();
+  const [currObjs, setCurrObjs] = useState<ScreenObject[]>([]);
 
   // Model
   const model = useTensorflowModel(require('../assets/model/model_efficientdet.tflite'));
   const actualModel = model.state === 'loaded' ? model.model : undefined;
 
   // Ref
-  const preds = useCanvasRef();
+  const prevObjs = React.useRef<ScreenObject[]>([]);
 
   // Other bits
   const { resize } = useResizePlugin();
@@ -68,8 +68,70 @@ export default function Index() {
     let str = `${top} (${(score * 100).toFixed(1)}%)`
     setTopPred(str)
   })
-  const updatePrevObjs = Worklets.createRunOnJS((objs: ScreenObject[]) => {setPrevObjs(objs)});
   const updateCurrObjs = Worklets.createRunOnJS((objs: ScreenObject[]) => {setCurrObjs(objs)});
+
+  // Tracks an object
+  const trackFrame = (objs: ScreenObject[]) => {
+    let current: ScreenObject[] = objs?.map(obj => ({ // initialise
+      ...obj,
+      direction: 'STILL',
+      frames: 1,
+      checked: false
+    }));
+    let previous = [...prevObjs.current];
+
+    if (previous.length > 0) {
+      // Compare with previous frame objects
+      for (let currObj of current) {
+        for (let prevObj of previous) {
+          if (checkObj(currObj, prevObj)) {
+            currObj.checked = true;
+
+            // Update direction if still
+            if (prevObj.direction === 'STILL') {
+              const leftDiff = currObj.box.left - prevObj.box.left;
+              const rightDiff = currObj.box.right - prevObj.box.right;
+
+              if (leftDiff < 0 && rightDiff < 0) currObj.direction = 'LEFT';
+              else if (leftDiff > 0  && rightDiff > 0) currObj.direction = 'RIGHT';
+            } else { // if not still, keep the previous direction
+              currObj.direction = prevObj.direction ?? 'STILL';
+            }
+            
+            // increment frame
+            currObj.frames = (prevObj.frames ?? 0) + 1;
+          } 
+        }
+      }
+
+      // Check for disappeared objects
+      const disappeared = previous.filter(obj => !current.some(c => checkObj(c, obj)));
+      if (disappeared.length > 0) {
+        console.log("Objects disappeared:");
+        disappeared.forEach(disObj => {
+          console.log(`- ${disObj.category} = ${disObj.frames}`);
+        });
+      }
+    }
+
+    prevObjs.current = current;
+  }
+
+  // Check if two objects are similar
+  const checkObj = (current: ScreenObject, previous: ScreenObject) => {
+    if (!current || !previous) return false;
+    
+    const currHeight = current.box.bottom - current.box.top;
+    const prevHeight = previous.box.bottom - previous.box.top;
+    if (prevHeight <= 0) return false; // div by zero
+
+    const difference = Math.abs(currHeight - prevHeight) / prevHeight;
+
+    return difference <= HEIGHT_TOLERANCE && current.category === previous.category
+  }
+
+  // JS Worklets for misc functions
+  const trackFrameEntry = Worklets.createRunOnJS( (objs: ScreenObject[]) => {trackFrame(objs)})
 
   const frameProcessor = useFrameProcessor( (frame) => {
     'worklet'
@@ -107,7 +169,8 @@ export default function Index() {
       const right = detection_boxes[i + 2] * screenWidth;
       const bottom = detection_boxes[i + 3] * screenHeight;
 
-      const category = COCO_CLASSES[currentIndex] ?? 'unknown';
+      const catIndex = detection_classes[currentIndex] as number;
+      const category = COCO_CLASSES[catIndex] ?? 'unknown';
       const score = detection_scores[currentIndex] as number;
 
       const screenObj: ScreenObject = {
@@ -122,11 +185,12 @@ export default function Index() {
     }
 
     updateCurrObjs(objs);
+    trackFrameEntry(objs);
 
     // Duration
     const duration = Date.now() - startTime;
     updateFps(1000 / duration)
-  }, [model])
+  }, [actualModel])
 
   // FPS counter
   const renderFps = () => {
