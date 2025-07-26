@@ -20,8 +20,6 @@
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-node": "^4.22.0",
-    "@tensorflow/tfjs-react-native": "^1.0.0",
-    "@tensorflow/tfjs-tflite": "^0.0.1-alpha.10",
     "async-storage": "^0.1.0",
     "expo": "~53.0.12",
     "expo-blur": "~14.1.5",
