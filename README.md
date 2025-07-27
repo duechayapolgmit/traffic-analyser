@@ -27,4 +27,5 @@ You can start developing by editing the files inside the **app** directory. This
 
 ## Building
 
+Locally, do `npx expo run:android --variant release` for the release mode
 Do `eas build` to build the application. Note that you need an Expo account.
