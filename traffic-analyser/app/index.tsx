@@ -12,6 +12,8 @@ import { useResizePlugin } from 'vision-camera-resize-plugin';
 
 import { Canvas, Rect } from '@shopify/react-native-skia';
 
+import axios from 'axios';
+
 import { COCO_CLASSES } from '../scripts/classes';
 
 interface ScreenObject {
@@ -26,12 +28,15 @@ interface ScreenObject {
   frames?: number;
   checked?: boolean;
   score: number;
+  time: number;
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const IMG_SIZE = 448; // lite2
 const TOLERANCE = 0.4;
 const HEIGHT_TOLERANCE = 0.3;
+
+const DB_LINK = 'http://localhost:5000/api/data'
 
 export default function Index() {
   // Permissions
@@ -111,6 +116,7 @@ export default function Index() {
       if (disappeared.length > 0) {
         console.log("Objects disappeared:");
         disappeared.forEach(disObj => {
+          //axios.post(DB_LINK, disObj).then(ret => {console.log(ret)}).catch(err => {console.log(err.toJSON())})
           console.log(`- ${disObj.category} = ${disObj.frames}`);
         });
       }
@@ -178,7 +184,8 @@ export default function Index() {
       const screenObj: ScreenObject = {
         box: {left: left, right: right, top: top, bottom: bottom},
         category: category,
-        score: score
+        score: score,
+        time: Date.now()
       }
       objs.push(screenObj);
 

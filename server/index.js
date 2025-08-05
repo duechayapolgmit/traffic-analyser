@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB connection
-mongoose.connect(`mongodb://127.0.0.1:27017/traffic-analyser`)
+mongoose.connect(`mongodb://127.0.0.1:27017/traffic-data`)
     .then(() => console.log('MongoDB connected'))
 
 // Model
@@ -18,13 +18,16 @@ const Item = mongoose.model('item', new mongoose.Schema({
     latitude: Number,
     longitude: Number,
     timestamp: Date
-}), 'traffic-data')
+}), 'detections')
 
 // MongoDB stuff
 app.post('/api/data', async (req, res) => {
+    // Convert UNIX time to Date
+    let date = new Date(req.body.timestamp)
     const item = new Item(req.body);
     try {
         const savedItem = await item.save();
+        console.log(item)
         res.status(201).json(savedItem);
     } catch (err) {
         res.status(400).json({ message: err.message })
