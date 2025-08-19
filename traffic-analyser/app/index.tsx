@@ -4,6 +4,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useCameraPermissions } from "expo-camera";
 import { TypedArray } from "expo-modules-core";
+import * as Location from 'expo-location';
 
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { Camera, CameraDevice, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
@@ -36,13 +37,14 @@ const IMG_SIZE = 448; // lite2
 const TOLERANCE = 0.4;
 const HEIGHT_TOLERANCE = 0.3;
 
-const DB_LINK = 'http://localhost:5000/api/data'
+const DB_LINK = 'http://10.5.0.2:5000/api/data'
 
 export default function Index() {
   // Permissions
   const [permission, requestPermission] = useCameraPermissions();
 
   // States
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [fps, setFps] = useState<number>(0);
   const [topPred, setTopPred] = useState<string>("");
   const [currObjs, setCurrObjs] = useState<ScreenObject[]>([]);
@@ -68,6 +70,21 @@ export default function Index() {
   useEffect(() => {
     requestPermission();
   }, [requestPermission])
+
+  // Start -> Others
+  useEffect(() => {
+    async function getCurrentLocation() {
+      let {status} = await Location.requestForegroundPermissionsAsync();
+      if (status != 'granted') {
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({});
+      setLocation(location);
+    }
+
+    getCurrentLocation();
+  },[])
 
   // JS state updates
   const updateFps = Worklets.createRunOnJS((fps: number) => {setFps(fps)});
@@ -116,8 +133,23 @@ export default function Index() {
       if (disappeared.length > 0) {
         console.log("Objects disappeared:");
         disappeared.forEach(disObj => {
-          //axios.post(DB_LINK, disObj).then(ret => {console.log(ret)}).catch(err => {console.log(err.toJSON())})
-          console.log(`- ${disObj.category} = ${disObj.frames}`);
+          // Prep object for posting
+          let latitude, longitude = 0;
+          if (location != null) {
+            latitude = location.coords.latitude;
+            longitude = location.coords.longitude;
+          }
+
+          let postObj = {
+            category: disObj.category,
+            timestamp: disObj.time,
+            latitude: latitude,
+            longitude: longitude,
+            direction: disObj.direction
+          };
+
+          axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
+          console.log(`- ${disObj.category} = ${disObj.frames} (${postObj.latitude})`);
         });
       }
     }
