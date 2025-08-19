@@ -1,29 +1,31 @@
-import { GetServerSideProps } from "next";
-import { connectDB, Item } from "../util/database";
-
-interface Props {
-  entries: any[]
-}
+import { connectDB, Item } from '@/util/database';
+import EntriesTable from './entries';
 
 export default async function Home() {
-  await connectDB();
+  try {
+    await connectDB();
+    
+    // Add error handling for the query
+    const initialEntries = await Item.find().sort({ timestamp: -1 }).lean().exec();
+    
+    if (!initialEntries) {
+      throw new Error('No entries found');
+    }
 
-  const entries = await Item.find();
-
-  return (
-    <div>
-      <h1 className="text-xl">Detections</h1>
-      {entries.length === 0 ? (
-        <p className="text-gray-600">No entries found in the database.</p>
-      ) : (
-        <div className="grid gap-1">
-          {entries.map((entry) => (
-            <div key={entry._id.toString()} className="p-4 shadow-sm">
-              <p className="font-semibold">{entry.category}, {entry.latitude}, {entry.longitude}, {entry.timestamp.toString()}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    return (
+      <div>
+        <h1 className="text-xl">Detections</h1>
+        <p>Refreshes every 5 seconds</p>
+        <EntriesTable initialEntries={JSON.parse(JSON.stringify(initialEntries))} />
+      </div>
+    );
+  } catch (error: any) {
+    console.error('Database error:', error);
+    return (
+      <div>
+        <h1 className="text-xl">Detections</h1>
+        <div className="text-red-500">Error loading data: {error.message}</div>
+      </div>
+    );
+  }
 }

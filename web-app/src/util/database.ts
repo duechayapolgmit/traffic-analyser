@@ -9,10 +9,14 @@ export async function connectDB() {
   }
 }
 
-export const Item = mongoose.models.item || 
-  mongoose.model('item', new mongoose.Schema({
-    category: String,
-    latitude: Number,
-    longitude: Number,
-    timestamp: Date
-  }), 'detections');
+// Schema
+const itemSchema = new mongoose.Schema({
+  category: String,
+  latitude: Number,
+  longitude: Number,
+  timestamp: Date,
+  direction: String
+}, { collection: 'detections' }); 
+
+// Check if model already exists, otherwise create it
+export const Item = mongoose.models.item || mongoose.model('item', itemSchema);

@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.table-container {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-header, .table-row {
+  display: table-row;
+}
+
+.table-cell {
+  display: table-cell;
+  padding: 8px;
+  border: 1px solid #ddd;
+}
+
+.table-header .table-cell {
+  font-weight: bold;
+  background-color: var(--color-background);
+}
