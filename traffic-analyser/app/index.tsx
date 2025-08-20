@@ -30,12 +30,14 @@ interface ScreenObject {
   checked?: boolean;
   score: number;
   time: number;
+  grace: number;
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const IMG_SIZE = 448; // lite2
 const TOLERANCE = 0.4;
 const HEIGHT_TOLERANCE = 0.3;
+const FRAME_THRESHOLD = 10;
 
 const DB_LINK = 'http://10.5.0.2:5000/api/data'
 
@@ -100,7 +102,8 @@ export default function Index() {
       ...obj,
       direction: 'STILL',
       frames: 1,
-      checked: false
+      checked: false,
+      grace: 0
     }));
     let previous = [...prevObjs.current];
 
@@ -133,23 +136,28 @@ export default function Index() {
       if (disappeared.length > 0) {
         console.log("Objects disappeared:");
         disappeared.forEach(disObj => {
-          // Prep object for posting
-          let latitude, longitude = 0;
-          if (location != null) {
-            latitude = location.coords.latitude;
-            longitude = location.coords.longitude;
+          if (disObj.grace <= FRAME_THRESHOLD) {
+            disObj.grace += 1;
+            current.push(disObj)
+          } else {
+            // Prep object for posting
+            let latitude, longitude = 0;
+            if (location != null) {
+              latitude = location.coords.latitude;
+              longitude = location.coords.longitude;
+            }
+
+            let postObj = {
+              category: disObj.category,
+              timestamp: disObj.time,
+              latitude: latitude,
+              longitude: longitude,
+              direction: disObj.direction
+            };
+
+            axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
+            console.log(`- ${disObj.category} = ${disObj.frames} (${postObj.latitude})`);
           }
-
-          let postObj = {
-            category: disObj.category,
-            timestamp: disObj.time,
-            latitude: latitude,
-            longitude: longitude,
-            direction: disObj.direction
-          };
-
-          axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
-          console.log(`- ${disObj.category} = ${disObj.frames} (${postObj.latitude})`);
         });
       }
     }
@@ -217,7 +225,8 @@ export default function Index() {
         box: {left: left, right: right, top: top, bottom: bottom},
         category: category,
         score: score,
-        time: Date.now()
+        time: Date.now(),
+        grace: 0
       }
       objs.push(screenObj);
 
