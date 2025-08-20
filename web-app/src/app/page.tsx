@@ -1,5 +1,7 @@
 import { connectDB, Item } from '@/util/database';
-import EntriesTable from './entries';
+import EntriesTable from './components/entries';
+import EntryChart from './components/chart';
+import Dashboard from './dashboard';
 
 export default async function Home() {
   try {
@@ -15,8 +17,8 @@ export default async function Home() {
     return (
       <div>
         <h1 className="text-xl">Detections</h1>
-        <p>Refreshes every 5 seconds</p>
-        <EntriesTable initialEntries={JSON.parse(JSON.stringify(initialEntries))} />
+        <p>Refreshes every 15 seconds</p>
+        <Dashboard/>
       </div>
     );
   } catch (error: any) {
