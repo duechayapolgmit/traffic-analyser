@@ -10,10 +10,11 @@ FRAME_THRESHOLD = 10 # grace period
 
 # Class for the objects:
 class Obj:
-    def __init__(self, id, timestamp, cls, direction, centre):
+    def __init__(self, id, timestamp, cls, centre):
         self.id = id
         self.cls = cls
-        self.direction = direction
+        self.direction = {'STILL': 0, 'LEFT': 0, 'RIGHT': 0}
+        self.previous_direction = 'STILL'
         self.timestamp = timestamp
         self.centre = centre
         self.grace = 0
@@ -25,17 +26,20 @@ def send_data(obj):
     latitude = g.latlng[0]
     longitude = g.latlng[1]
 
+    # Get direction
+    direction = max(obj.direction, key=obj.direction.get)
+
     # Data for Server - individual
     class_name = '{} ({})'.format(model.names[int(obj.cls)], obj.id)
     obj_to_send = {'latitude': latitude, 
                     'longitude': longitude, 
                     'category': class_name, 
                     'timestamp': obj.timestamp, 
-                    'direction': obj.direction}
+                    'direction': direction}
 
     # Send to Server
     requests.post(URL, json=obj_to_send)
-    print('New object sent: ', class_name, obj.timestamp, latitude, longitude)
+    print('New object sent: ', class_name, obj.timestamp, latitude, longitude, direction)
 
 # Load a model
 model = YOLO("yolo11n.pt")
@@ -69,16 +73,19 @@ for result in results:
 
                 # Get direction
                 if curr_centre > prev_obj.centre + DIRECTION_THRESHOLD:
-                    prev_obj.direction = 'RIGHT'
+                    prev_obj.direction['RIGHT'] += 1
                 elif curr_centre < prev_obj.centre - DIRECTION_THRESHOLD:
-                    prev_obj.direction = 'LEFT'
+                    prev_obj.direction['LEFT'] += 1
+                else:
+                    prev_obj.direction[prev_obj.previous_direction] += 1
 
                 # Update
                 prev_obj.centre = curr_centre
                 prev_obj.grace = 0
                 curr_objs.append(prev_obj)
             else: # If it's not the same object -> it's a new one, so create a new object
-                new_obj = Obj(curr_id, timestamp=int(time.time()*1000), cls=curr_cls, direction='STILL', centre=curr_centre)
+                new_obj = Obj(curr_id, timestamp=int(time.time()*1000), cls=curr_cls, centre=curr_centre)
+                new_obj.direction['STILL'] += 1
                 curr_objs.append(new_obj)
 
     # Check the previous frame
