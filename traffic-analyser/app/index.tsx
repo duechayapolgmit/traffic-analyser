@@ -3,8 +3,8 @@ import { Dimensions, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { useCameraPermissions } from "expo-camera";
-import { TypedArray } from "expo-modules-core";
 import * as Location from 'expo-location';
+import { TypedArray } from "expo-modules-core";
 
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { Camera, CameraDevice, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
@@ -13,7 +13,6 @@ import { useResizePlugin } from 'vision-camera-resize-plugin';
 
 import { Canvas, Rect } from '@shopify/react-native-skia';
 
-import axios from 'axios';
 
 import { COCO_CLASSES } from '../scripts/classes';
 
@@ -67,7 +66,7 @@ export default function Index() {
   // Other bits
   const { resize } = useResizePlugin();
   const device = useCameraDevice('back') as CameraDevice;
-  const id: number = 0;
+  let id: number = 0;
 
   // Start -> Model loading
   useEffect(() => {
@@ -144,10 +143,9 @@ export default function Index() {
       // Check for disappeared objects
       const disappeared = previous.filter(obj => !current.some(c => checkObj(c, obj)));
       if (disappeared.length > 0) {
-        console.log("Objects disappeared:");
         disappeared.forEach(disObj => {
           if (disObj.grace <= FRAME_THRESHOLD) {
-            disObj.grace += 1;
+            disObj.grace = disObj.grace + 1;
             current.push(disObj)
           } else {
             // Prep object for posting
@@ -158,11 +156,14 @@ export default function Index() {
             }
 
             // Direction handling
-            const maxEntry = Object.entries(disObj.direction).reduce(
+            const directions = {
+              'LEFT': disObj.direction.LEFT,
+              'RIGHT': disObj.direction.RIGHT,
+              'STILL': disObj.direction.STILL
+            }
+            const [direction, directionValue] = Object.entries(directions).reduce(
               (max, entry) => entry[1] > max[1] ? entry : max
-            );
-
-            const [direction, maxValue] = maxEntry;
+            )
 
             let postObj = {
               category: disObj.category + `${disObj.id}`,
@@ -172,8 +173,8 @@ export default function Index() {
               direction: direction
             };
 
-            axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
-            console.log(`- ${disObj.category} = ${disObj.frames} (${postObj.latitude})`);
+            //axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
+            console.log(`- New Object: ${disObj.category} (${disObj.id}) = ${disObj.frames} (${postObj.latitude})`);
           }
         });
       }
@@ -239,6 +240,7 @@ export default function Index() {
       const score = detection_scores[currentIndex] as number;
 
       const objId = id + 1;
+      id = id + 1;
       const screenObj: ScreenObject = {
         id: objId,
         box: { left: left, right: right, top: top, bottom: bottom },
