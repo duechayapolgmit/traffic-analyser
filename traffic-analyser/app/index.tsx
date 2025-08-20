@@ -18,6 +18,7 @@ import axios from 'axios';
 import { COCO_CLASSES } from '../scripts/classes';
 
 interface ScreenObject {
+  id: number;
   box: {
     left: number;
     right: number;
@@ -25,7 +26,12 @@ interface ScreenObject {
     bottom: number;
   }
   category: string;
-  direction?: 'STILL' | 'LEFT' | 'RIGHT'
+  direction: {
+    'STILL': number;
+    'LEFT': number;
+    'RIGHT': number;
+  }
+  previous_direction: 'STILL' | 'LEFT' | 'RIGHT';
   frames?: number;
   checked?: boolean;
   score: number;
@@ -61,6 +67,7 @@ export default function Index() {
   // Other bits
   const { resize } = useResizePlugin();
   const device = useCameraDevice('back') as CameraDevice;
+  const id: number = 0;
 
   // Start -> Model loading
   useEffect(() => {
@@ -100,7 +107,6 @@ export default function Index() {
   const trackFrame = (objs: ScreenObject[]) => {
     let current: ScreenObject[] = objs?.map(obj => ({ // initialise
       ...obj,
-      direction: 'STILL',
       frames: 1,
       checked: false,
       grace: 0
@@ -114,15 +120,19 @@ export default function Index() {
           if (checkObj(currObj, prevObj)) {
             currObj.checked = true;
 
-            // Update direction if still
-            if (prevObj.direction === 'STILL') {
-              const leftDiff = currObj.box.left - prevObj.box.left;
-              const rightDiff = currObj.box.right - prevObj.box.right;
-
-              if (leftDiff < 0 && rightDiff < 0) currObj.direction = 'LEFT';
-              else if (leftDiff > 0  && rightDiff > 0) currObj.direction = 'RIGHT';
-            } else { // if not still, keep the previous direction
-              currObj.direction = prevObj.direction ?? 'STILL';
+            // Direction
+            const leftDiff = currObj.box.left - prevObj.box.left;
+            const rightDiff = currObj.box.right - prevObj.box.right;
+            if (leftDiff < 0 && rightDiff < 0) {
+              currObj.direction.LEFT += 1;
+              currObj.previous_direction = 'LEFT';
+            }
+            else if (leftDiff > 0  && rightDiff > 0) {
+              currObj.direction.RIGHT += 1;
+              currObj.previous_direction = 'RIGHT';
+            } else {
+              currObj.direction.STILL += 1;
+              currObj.previous_direction = 'STILL';
             }
             
             // increment frame
@@ -147,12 +157,19 @@ export default function Index() {
               longitude = location.coords.longitude;
             }
 
+            // Direction handling
+            const maxEntry = Object.entries(disObj.direction).reduce(
+              (max, entry) => entry[1] > max[1] ? entry : max
+            );
+
+            const [direction, maxValue] = maxEntry;
+
             let postObj = {
-              category: disObj.category,
+              category: disObj.category + `${disObj.id}`,
               timestamp: disObj.time,
               latitude: latitude,
               longitude: longitude,
-              direction: disObj.direction
+              direction: direction
             };
 
             axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
@@ -221,12 +238,16 @@ export default function Index() {
       const category = COCO_CLASSES[catIndex] ?? 'unknown';
       const score = detection_scores[currentIndex] as number;
 
+      const objId = id + 1;
       const screenObj: ScreenObject = {
-        box: {left: left, right: right, top: top, bottom: bottom},
+        id: objId,
+        box: { left: left, right: right, top: top, bottom: bottom },
         category: category,
         score: score,
         time: Date.now(),
-        grace: 0
+        grace: 0,
+        direction: { LEFT: 0, RIGHT: 0, STILL: 1 },
+        previous_direction: "STILL"
       }
       objs.push(screenObj);
 
