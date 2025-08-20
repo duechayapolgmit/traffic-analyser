@@ -1,2 +1,4 @@
 ultralytics
 geocoder==1.38.1
+tensorflow
+efficientnet=1.1.1
