@@ -23,20 +23,36 @@ Chart.register([
   Legend
 ]);
 
-interface EntriesTableProps {
+interface CategoryTimeChartProps {
   initialEntries: Entry[];
-  onBarClick?: (filteredEntries: Entry[], timeRange: string) => void;
+  timeGrouping: '1min' | '5min' | '15min' | '30min' | '1hour';
+  onBarClick?: (timeKey: string, category: string) => void;
 }
 
-type TimeGrouping = '1min' | '5min' | '15min' | '30min' | '1hour';
-
-export default function CategoryTimeChart({ initialEntries, onBarClick }: EntriesTableProps) {
-  const [timeGrouping, setTimeGrouping] = useState<TimeGrouping>('5min');
+export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarClick }: CategoryTimeChartProps) {
   const [selectedBar, setSelectedBar] = useState<{ timeKey: string; category: string } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const timeGroupsMapRef = useRef<Map<string, Entry[]>>(new Map());
+
+  const handleBarClick = (timeKey: string, category: string) => {
+    const mapKey = `${timeKey}_${category}`;
+    const filteredEntries = timeGroupsMapRef.current.get(mapKey) || [];
+    setSelectedBar({ timeKey, category });
+
+    if (onBarClick) {
+      onBarClick(timeKey, category);
+    }
+
+    // Highlight selected bar dynamically
+    if (chartRef.current) {
+      chartRef.current.data.datasets.forEach((dataset) => {
+        dataset.borderWidth = dataset.label === category ? 3 : 1;
+      });
+      chartRef.current.update();
+    }
+  };
 
   const getGroupedData = useCallback(() => {
     const categories = Array.from(new Set(initialEntries.map(e => e.category)));
@@ -84,24 +100,6 @@ export default function CategoryTimeChart({ initialEntries, onBarClick }: Entrie
     return { timeGroups, categories };
   }, [initialEntries, timeGrouping]);
 
-  const handleBarClick = (timeKey: string, category: string) => {
-    const mapKey = `${timeKey}_${category}`;
-    const filteredEntries = timeGroupsMapRef.current.get(mapKey) || [];
-    setSelectedBar({ timeKey, category });
-
-    if (onBarClick) {
-      onBarClick(filteredEntries, `${timeKey} - ${category}`);
-    }
-
-    // Highlight selected bar dynamically
-    if (chartRef.current) {
-      chartRef.current.data.datasets.forEach((dataset) => {
-        dataset.borderWidth = dataset.label === category ? 3 : 1;
-      });
-      chartRef.current.update();
-    }
-  };
-
   const setupChart = useCallback(() => {
     if (!canvasRef.current) return;
 
@@ -110,7 +108,7 @@ export default function CategoryTimeChart({ initialEntries, onBarClick }: Entrie
 
     const { timeGroups, categories } = getGroupedData();
     const sortedTimeKeys = Object.keys(timeGroups).sort();
-    const timeLabels = sortedTimeKeys.map(key => key.split(' ')[2]);
+    const timeLabels = sortedTimeKeys;
 
     const datasets = categories.map((category, index) => ({
       label: category,
@@ -120,75 +118,76 @@ export default function CategoryTimeChart({ initialEntries, onBarClick }: Entrie
       borderWidth: 1,
     }));
 
+    // Always destroy previous chart before creating a new one
     if (chartRef.current) {
-      chartRef.current.data.labels = timeLabels;
-      chartRef.current.data.datasets = datasets;
-      chartRef.current.update();
-    } else {
-      chartRef.current = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: timeLabels,
-          datasets
+      chartRef.current.destroy();
+      chartRef.current = null;
+    }
+
+    chartRef.current = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: timeLabels,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        onClick: (event, elements) => {
+          if (elements.length > 0) {
+            const element = elements[0];
+            const datasetIndex = element.datasetIndex;
+            const index = element.index;
+            const timeKey = timeLabels[index];
+            const category = categories[datasetIndex];
+            if (onBarClick) {
+              onBarClick(timeKey, category);
+            }
+          }
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          onClick: (event, elements) => {
-            if (elements.length > 0) {
-              const element = elements[0];
-              const datasetIndex = element.datasetIndex;
-              const index = element.index;
-              const timeKey = sortedTimeKeys[index];
-              const category = categories[datasetIndex];
-              handleBarClick(timeKey, category);
-            }
-          },
-          scales: {
-            x: {
-              stacked: true,
-              title: {
-                display: true,
-                text: 'Time'
-              }
-            },
-            y: {
-              stacked: true,
-              title: {
-                display: true,
-                text: 'Number of Items'
-              },
-              beginAtZero: true
-            }
-          },
-          plugins: {
+        scales: {
+          x: {
+            stacked: true,
             title: {
               display: true,
-              text: `Items per Category (Grouped by ${timeGrouping.replace('min', '-minute').replace('1hour', '1-hour')})`
+              text: 'Time'
+            }
+          },
+          y: {
+            stacked: true,
+            title: {
+              display: true,
+              text: 'Number of Items'
             },
-            tooltip: {
-              callbacks: {
-                label: context => `${context.dataset.label}: ${context.parsed.y} items`,
-                title: context => sortedTimeKeys[context[0].dataIndex]
-              }
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          title: {
+            display: true,
+            text: `Items per Category (Grouped by ${timeGrouping.replace('min', '-minute').replace('1hour', '1-hour')})`
+          },
+          tooltip: {
+            callbacks: {
+              label: context => `${context.dataset.label}: ${context.parsed.y} items`,
+              title: context => timeLabels[context[0].dataIndex]
             }
           }
         }
-      });
-    }
+      }
+    });
   }, [initialEntries, timeGrouping, getGroupedData]);
 
   useEffect(() => {
     setupChart();
+    // Clean up chart on unmount
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
   }, [setupChart]);
-
-  const groupingOptions = [
-    { value: '1min', label: '1 Minute' },
-    { value: '5min', label: '5 Minutes' },
-    { value: '15min', label: '15 Minutes' },
-    { value: '30min', label: '30 Minutes' },
-    { value: '1hour', label: '1 Hour' }
-  ];
 
   return (
     <div className="p-4">
@@ -198,7 +197,7 @@ export default function CategoryTimeChart({ initialEntries, onBarClick }: Entrie
           <button
             onClick={() => {
               setSelectedBar(null);
-              if (onBarClick) onBarClick([], '');
+              if (onBarClick) onBarClick('', '');
               if (chartRef.current) {
                 chartRef.current.data.datasets.forEach(ds => ds.borderWidth = 1);
                 chartRef.current.update();
@@ -212,21 +211,6 @@ export default function CategoryTimeChart({ initialEntries, onBarClick }: Entrie
       )}
 
       <div className="mb-4 flex gap-4 items-center flex-wrap">
-        <label className="flex items-center gap-2">
-          <span className="font-medium">Group by:</span>
-          <select
-            value={timeGrouping}
-            onChange={(e) => setTimeGrouping(e.target.value as TimeGrouping)}
-            className="border rounded px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {groupingOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <div className="text-sm text-gray-600">
           Total entries: {initialEntries.length} | Categories: {Array.from(new Set(initialEntries.map(e => e.category))).join(', ')}
         </div>

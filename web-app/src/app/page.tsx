@@ -15,8 +15,8 @@ export default async function Home() {
     }
 
     return (
-      <div>
-        <h1 className="text-xl">Detections</h1>
+      <div className='grid grid-cols-1 gap-3 p-6'>
+        <h1 className="text-xl">Object Detections</h1>
         <p>Refreshes every 15 seconds</p>
         <Dashboard/>
       </div>
@@ -24,8 +24,8 @@ export default async function Home() {
   } catch (error: any) {
     console.error('Database error:', error);
     return (
-      <div>
-        <h1 className="text-xl">Detections</h1>
+      <div className='grid grid-cols-1 gap-3 p-6'>
+        <h1 className="text-xl">Object Detections</h1>
         <div className="text-red-500">Error loading data: {error.message}</div>
       </div>
     );
