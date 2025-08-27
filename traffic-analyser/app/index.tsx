@@ -66,7 +66,6 @@ export default function Index() {
   // Other bits
   const { resize } = useResizePlugin();
   const device = useCameraDevice('back') as CameraDevice;
-  let id: number = 0;
 
   // Start -> Model loading
   useEffect(() => {
@@ -112,32 +111,36 @@ export default function Index() {
     }));
     let previous = [...prevObjs.current];
 
+    let checked = [];
+
     if (previous.length > 0) {
       // Compare with previous frame objects
       for (let currObj of current) {
         for (let prevObj of previous) {
           if (checkObj(currObj, prevObj)) {
             currObj.checked = true;
+            prevObj.grace = 0;
 
             // Direction
             const leftDiff = currObj.box.left - prevObj.box.left;
             const rightDiff = currObj.box.right - prevObj.box.right;
             if (leftDiff < 0 && rightDiff < 0) {
-              currObj.direction.LEFT += 1;
-              currObj.previous_direction = 'LEFT';
+              prevObj.direction.LEFT += 1;
+              prevObj.previous_direction = 'LEFT';
             }
             else if (leftDiff > 0  && rightDiff > 0) {
-              currObj.direction.RIGHT += 1;
-              currObj.previous_direction = 'RIGHT';
+              prevObj.direction.RIGHT += 1;
+              prevObj.previous_direction = 'RIGHT';
             } else {
-              currObj.direction.STILL += 1;
-              currObj.previous_direction = 'STILL';
+              prevObj.direction.STILL += 1;
+              prevObj.previous_direction = 'STILL';
             }
-            
-            // increment frame
-            currObj.frames = (prevObj.frames ?? 0) + 1;
+            prevObj.frames = (prevObj.frames ?? 0) + 1;
+            checked.push(prevObj)
+            break;
           } 
         }
+        if (currObj.checked == false) checked.push(currObj)
       }
 
       // Check for disappeared objects
@@ -146,7 +149,7 @@ export default function Index() {
         disappeared.forEach(disObj => {
           if (disObj.grace <= FRAME_THRESHOLD) {
             disObj.grace = disObj.grace + 1;
-            current.push(disObj)
+            checked.push(disObj)
           } else {
             // Prep object for posting
             let latitude, longitude = 0;
@@ -178,9 +181,11 @@ export default function Index() {
           }
         });
       }
+    } else {
+      checked = current
     }
 
-    prevObjs.current = current;
+    prevObjs.current = checked;
   }
 
   // Check if two objects are similar
@@ -239,8 +244,7 @@ export default function Index() {
       const category = COCO_CLASSES[catIndex] ?? 'unknown';
       const score = detection_scores[currentIndex] as number;
 
-      const objId = id + 1;
-      id = id + 1;
+      const objId = Math.floor(Math.random() * 1000);
       const screenObj: ScreenObject = {
         id: objId,
         box: { left: left, right: right, top: top, bottom: bottom },
