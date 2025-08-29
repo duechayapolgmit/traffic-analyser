@@ -12,6 +12,7 @@ import { Worklets } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 
 import { Canvas, Rect } from '@shopify/react-native-skia';
+import axios from 'axios';
 
 
 import { COCO_CLASSES } from '../scripts/classes';
@@ -44,7 +45,7 @@ const TOLERANCE = 0.4;
 const HEIGHT_TOLERANCE = 0.3;
 const FRAME_THRESHOLD = 10;
 
-const DB_LINK = 'http://10.5.0.2:5000/api/data'
+const DB_LINK = 'http://3.253.37.97:5000/api/data'
 
 export default function Index() {
   // Permissions
@@ -53,7 +54,8 @@ export default function Index() {
   // States
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [fps, setFps] = useState<number>(0);
-  const [topPred, setTopPred] = useState<string>("");
+  const [totalConfidenceSum, setTotalConfidenceSum] = useState<number>(0);
+  const [totalDetections, setTotalDetections] = useState<number>(0);
   const [currObjs, setCurrObjs] = useState<ScreenObject[]>([]);
 
   // Model
@@ -95,11 +97,11 @@ export default function Index() {
 
   // JS state updates
   const updateFps = Worklets.createRunOnJS((fps: number) => {setFps(fps)});
-  const updateTopPred = Worklets.createRunOnJS((top: string, score: number) => {
-    let str = `${top} (${(score * 100).toFixed(1)}%)`
-    setTopPred(str)
-  })
   const updateCurrObjs = Worklets.createRunOnJS((objs: ScreenObject[]) => {setCurrObjs(objs)});
+  const updateAccumulatedConfidence = Worklets.createRunOnJS((sum: number, count: number) => {
+    setTotalConfidenceSum(prev => prev + sum);
+    setTotalDetections(prev => prev + count);
+  });
 
   // Tracks an object
   const trackFrame = (objs: ScreenObject[]) => {
@@ -152,7 +154,8 @@ export default function Index() {
             checked.push(disObj)
           } else {
             // Prep object for posting
-            let latitude, longitude = 0;
+            let latitude = 0;
+            let longitude = 0;
             if (location != null) {
               latitude = location.coords.latitude;
               longitude = location.coords.longitude;
@@ -169,14 +172,14 @@ export default function Index() {
             )
 
             let postObj = {
-              category: disObj.category + `${disObj.id}`,
+              category: disObj.category + ` (${disObj.id})`,
               timestamp: disObj.time,
               latitude: latitude,
               longitude: longitude,
               direction: direction
             };
 
-            //axios.post(DB_LINK, postObj).then(ret => {console.log(ret)}).catch(err => {console.log(err)})
+            axios.post(DB_LINK, postObj).catch(err => {console.log(err)})
             console.log(`- New Object: ${disObj.category} (${disObj.id}) = ${disObj.frames} (${postObj.latitude})`);
           }
         });
@@ -229,6 +232,9 @@ export default function Index() {
     
     // Process the outputs to ScreenObject
     let objs: ScreenObject[] = [];
+    let scoreSum = 0;
+    let detections = 0;
+
     for (let i = 0; i < Number(num_detections[0]) * 4; i+= 4) {
       const currentIndex = Math.round(i / 4); // separate from the loop itself - for index 1, 2, 3, and not increments of 4
 
@@ -244,6 +250,9 @@ export default function Index() {
       const category = COCO_CLASSES[catIndex] ?? 'unknown';
       const score = detection_scores[currentIndex] as number;
 
+      scoreSum += score;
+      detections += 1;
+
       const objId = Math.floor(Math.random() * 1000);
       const screenObj: ScreenObject = {
         id: objId,
@@ -256,11 +265,10 @@ export default function Index() {
         previous_direction: "STILL"
       }
       objs.push(screenObj);
-
-      // Set top pred if i = 0
-      if (i == 0) updateTopPred(category, score)
       
     }
+
+    updateAccumulatedConfidence(scoreSum, detections);
 
     updateCurrObjs(objs);
     trackFrameEntry(objs);
@@ -280,10 +288,11 @@ export default function Index() {
   }
 
   // Top prediction
-  const renderTopPreds = () => {
+  const renderMeanConfidence = () => {
+    const accumulatedMean = totalDetections > 0 ? totalConfidenceSum / totalDetections : 0;
     return (
       <View style={styles.predsContainer}>
-        <Text>Top Pred: {topPred}</Text>
+        <Text>Mean Confidence: {accumulatedMean.toFixed(3)}</Text>
       </View>
     )
   }
@@ -387,7 +396,7 @@ export default function Index() {
         </View>
 
         {renderFps()}
-        {renderTopPreds()}
+        {renderMeanConfidence()}
       </ScrollView>
     </SafeAreaProvider>
   );
