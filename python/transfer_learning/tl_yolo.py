@@ -7,8 +7,8 @@ from ultralytics import YOLO
 model = YOLO("./yolo11n.pt")
 
 # Open the video file
-video_name = '20250821_160229.mp4'
-video_path = "./data/" + video_name
+video_name = '20250713_173759'
+video_path = "./data/" + video_name + '.mp4'
 cap = cv2.VideoCapture(video_path)
 
 # Outputs
@@ -37,11 +37,13 @@ while cap.isOpened():
 
                 # Get class name
                 class_name = model.names[int(class_id)]
+                out_class_dir = output_dir + '/' + class_name
+                os.makedirs(out_class_dir, exist_ok=True)
 
                 # Save cropped image with class name in filename
                 crop_path = os.path.join(
-                    output_dir,
-                    f"{video_name}_frame_{frame_count:05d}_box_{i}_{class_name}.jpg"
+                    out_class_dir,
+                    f"{video_name}_frame_{frame_count:05d}_box_{i}.jpg"
                 )
                 cv2.imwrite(crop_path, cropped)
 
