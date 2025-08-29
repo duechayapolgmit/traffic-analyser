@@ -1,6 +1,4 @@
 import { connectDB, Item } from '@/util/database';
-import EntriesTable from './components/entries';
-import EntryChart from './components/chart';
 import Dashboard from './dashboard';
 
 export default async function Home() {

@@ -36,24 +36,6 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
   const chartRef = useRef<Chart | null>(null);
   const timeGroupsMapRef = useRef<Map<string, Entry[]>>(new Map());
 
-  const handleBarClick = (timeKey: string, category: string) => {
-    const mapKey = `${timeKey}_${category}`;
-    const filteredEntries = timeGroupsMapRef.current.get(mapKey) || [];
-    setSelectedBar({ timeKey, category });
-
-    if (onBarClick) {
-      onBarClick(timeKey, category);
-    }
-
-    // Highlight selected bar dynamically
-    if (chartRef.current) {
-      chartRef.current.data.datasets.forEach((dataset) => {
-        dataset.borderWidth = dataset.label === category ? 3 : 1;
-      });
-      chartRef.current.update();
-    }
-  };
-
   const getGroupedData = useCallback(() => {
     const categories = Array.from(new Set(initialEntries.map(e => e.category)));
     const timeGroups: { [key: string]: { [category: string]: number } } = {};
@@ -176,7 +158,7 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
         }
       }
     });
-  }, [initialEntries, timeGrouping, getGroupedData]);
+  }, [initialEntries, timeGrouping, getGroupedData, onBarClick]);
 
   useEffect(() => {
     setupChart();
