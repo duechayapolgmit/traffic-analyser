@@ -12,3 +12,7 @@ export const COCO_CLASSES = [
   'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
   'scissors', 'teddy bear', 'hair drier', 'toothbrush'
 ];
+
+export const CLS_LABELS = [
+ 'bus', 'car', 'motorcycle' 
+]

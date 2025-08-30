@@ -14,7 +14,6 @@ import { useResizePlugin } from 'vision-camera-resize-plugin';
 import { Canvas, Rect } from '@shopify/react-native-skia';
 import axios from 'axios';
 
-
 import { COCO_CLASSES } from '../scripts/classes';
 
 interface ScreenObject {
@@ -40,8 +39,9 @@ interface ScreenObject {
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-const IMG_SIZE = 448; // lite2
-const TOLERANCE = 0.4;
+const MODEL = '../assets/model/model_efficientdet_lite3_512.tflite'
+const IMG_SIZE = 512; // lite2 - 448, hybrid - 512
+const TOLERANCE = 0.45;
 const HEIGHT_TOLERANCE = 0.3;
 const FRAME_THRESHOLD = 10;
 
@@ -59,7 +59,7 @@ export default function Index() {
   const [currObjs, setCurrObjs] = useState<ScreenObject[]>([]);
 
   // Model
-  const model = useTensorflowModel(require('../assets/model/model_efficientdet.tflite'));
+  const model = useTensorflowModel(require(MODEL));
   const actualModel = model.state === 'loaded' ? model.model : undefined;
 
   // Ref

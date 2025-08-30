@@ -6,6 +6,8 @@ import os
 
 # Disable warnings
 os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices=false'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # GPU Setup
 gpus = tf.config.list_physical_devices('GPU')
@@ -14,7 +16,7 @@ if gpus:
   try:
     tf.config.set_logical_device_configuration(
         gpus[0],
-        [tf.config.LogicalDeviceConfiguration(memory_limit=4096)])
+        [tf.config.LogicalDeviceConfiguration(memory_limit=5120)])
     logical_gpus = tf.config.list_logical_devices('GPU')
     print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
   except RuntimeError as e:
@@ -22,18 +24,19 @@ if gpus:
     print(e)
 
 # Parameters
-IMAGE_SIZE = (512, 512)
+IMAGE_SIZE = (256, 256)
 NUM_CLASSES = len(os.listdir('./output'))
 BIFPN_CHANNELS = 160
 BIFPN_LAYERS = 3
-BATCH_SIZE = 8
+BATCH_SIZE = 2
+MAX_DETECTIONS = 25 # from efficientdet
 
 # Load EfficientNetB4 backbone
-base_model = efficientnet.EfficientNetB4(
+base_model = efficientnet.EfficientNetB0(
     weights='noisy-student',
     include_top=False,
     pooling='avg',
-    input_shape=(512, 512, 3)
+    input_shape=(256, 256, 3)
 )
 inputs = base_model.input
 
@@ -65,44 +68,54 @@ fused = features
 for _ in range(BIFPN_LAYERS):
     fused = [simple_bifpn(fused)]
 
-# Detection head
-def detection_head(features, num_classes):
-    class_outputs = []
-    box_outputs = []
-    feat_count = 0
-    for feat in features:
-        x = layers.Conv2D(64, 3, padding='same', activation='relu')(feat)
-        x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
-        class_out = layers.Conv2D(num_classes, 1, activation='sigmoid')(x)
-        box_out = layers.Dense(4, name=f'box_output_{feat_count}')(x)
-        class_outputs.append(class_out)
-        box_outputs.append(box_out)
-        feat_count += 1
-    return class_outputs, box_outputs
+# Use only the last fused feature map (D4)
+last_feature = fused[-1]
 
-class_outs, box_outs = detection_head(fused, NUM_CLASSES)
+# Add a pooling layer before the detection head
+pooled_feature = layers.GlobalAveragePooling2D()(last_feature)
+pooled_feature = layers.Reshape((1, 1, BIFPN_CHANNELS))(pooled_feature)  # Reshape for Conv2D compatibility
 
-# Merge outputs
-class_out = layers.Concatenate(axis=1, name='class_output')(class_outs)
-box_out = layers.Concatenate(axis=1, name='box_output')(box_outs)
+def detection_head_single(feature, num_classes, max_detections):
+    x = layers.Conv2D(64, 3, padding='same', activation='relu')(feature)
+    x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
+    # Output shape: (batch_size, 1, 1, max_detections * 4) for boxes
+    box_out = layers.Conv2D(max_detections * 4, 1, activation='linear')(x)
+    box_out = layers.Reshape((max_detections, 4))(box_out)
+    # Output shape: (batch_size, 1, 1, max_detections * num_classes) for class logits
+    class_logits = layers.Conv2D(max_detections * num_classes, 1, activation='linear')(x)
+    class_logits = layers.Reshape((max_detections, num_classes))(class_logits)
+    # Use Lambda layers for TensorFlow ops
+    scores = layers.Lambda(lambda t: tf.reduce_max(tf.nn.sigmoid(t), axis=-1))(class_logits)
+    classes = class_logits
+    num_detections = layers.Lambda(lambda t: tf.fill([tf.shape(t)[0], 1], max_detections))(box_out)
+    return box_out, classes, scores, num_detections
 
-# Build model
-model = tf.keras.Model(inputs=inputs, outputs={
-    'class_output': class_out,
-    'box_output': box_out
-})
+detection_boxes, detection_classes, detection_scores, num_detections = detection_head_single(
+    pooled_feature, NUM_CLASSES, MAX_DETECTIONS
+)
 
-# Compile model
+# Build model with formatted outputs
+model = tf.keras.Model(inputs=inputs, outputs=[
+    detection_boxes,
+    detection_classes,
+    detection_scores,
+    num_detections
+])
+
 model.compile(
     optimizer='adam',
-    loss={
-        'class_output': tf.keras.losses.BinaryCrossentropy(),
-        'box_output': tf.keras.losses.MeanSquaredError()
-    },
-    metrics={
-        'class_output': 'accuracy',
-        'box_output': 'mse'
-    }
+    loss=[
+        tf.keras.losses.MeanSquaredError(),
+        tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+        tf.keras.losses.MeanSquaredError(),
+        tf.keras.losses.MeanSquaredError()
+    ],
+    metrics=[
+        'mse',
+        'accuracy',
+        'mse',
+        'mse'
+    ]
 )
 
 # Load dataset from folder
@@ -122,15 +135,31 @@ def preprocess(image, label):
 
 def add_dummy_boxes(image, label):
     batch_size = tf.shape(image)[0]
-    dummy_boxes = tf.ones([batch_size, class_out.shape[1], class_out.shape[2], 4])
-    class_map = tf.repeat(tf.expand_dims(label, axis=1), repeats=class_out.shape[1], axis=1)
-    class_map = tf.repeat(tf.expand_dims(class_map, axis=2), repeats=class_out.shape[2], axis=2)
-    return image, {'class_output': class_map, 'box_output': dummy_boxes}
+    # Dummy boxes: (batch_size, MAX_DETECTIONS, 4)
+    dummy_boxes = tf.ones((batch_size, MAX_DETECTIONS, 4), dtype=tf.float32)
+    # Classes: (batch_size, MAX_DETECTIONS)
+    class_indices = tf.argmax(label, axis=-1, output_type=tf.int32)
+    detection_classes = tf.tile(tf.expand_dims(class_indices, axis=-1), [1, MAX_DETECTIONS])
+    detection_classes = tf.cast(detection_classes, tf.float32)
+    # Scores: (batch_size, MAX_DETECTIONS)
+    detection_scores = tf.ones((batch_size, MAX_DETECTIONS), dtype=tf.float32)
+    # Num detections: (batch_size, 1)
+    num_detections = tf.fill([batch_size, 1], tf.cast(MAX_DETECTIONS, tf.float32))
+    # Return as tuple matching model outputs
+    targets = (
+        dummy_boxes,
+        detection_classes,
+        detection_scores,
+        num_detections
+    )
+    return image, targets
 
 dataset = dataset.map(preprocess).map(add_dummy_boxes)
 
+model.summary()
+
 # Train model
-model.fit(dataset, epochs=10)
+model.fit(dataset, epochs=20)
 
 # Save the model
 model.export("effdet_like_model")
