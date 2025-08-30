@@ -4,7 +4,7 @@ import time
 import requests
 
 # Params
-URL = 'http://3.253.37.97:5000/api/data'
+URL = 'http://52.18.101.172:5000/api/data'
 DIRECTION_THRESHOLD = 5
 FRAME_THRESHOLD = 10 # grace period
 

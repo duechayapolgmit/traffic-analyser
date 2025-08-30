@@ -1,4 +1,4 @@
-const FETCH_URL = 'http://3.253.37.97:5000/api/data';
+const FETCH_URL = 'http://52.18.101.172:5000/api/data';
 
 export interface Entry {
   _id: string;

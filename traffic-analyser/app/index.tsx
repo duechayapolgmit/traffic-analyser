@@ -45,7 +45,7 @@ const TOLERANCE = 0.45;
 const HEIGHT_TOLERANCE = 0.3;
 const FRAME_THRESHOLD = 10;
 
-const DB_LINK = 'http://3.253.37.97:5000/api/data'
+const DB_LINK = 'http://52.18.101.172:5000/api/data'
 
 export default function Index() {
   // Permissions
