@@ -40,6 +40,14 @@
         {
           "enableAndroidGpuLibraries": true
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
     ],
     "experiments": {
