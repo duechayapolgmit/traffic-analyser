@@ -73,7 +73,7 @@ last_feature = fused[-1]
 
 # Add a pooling layer before the detection head
 pooled_feature = layers.GlobalAveragePooling2D()(last_feature)
-pooled_feature = layers.Reshape((1, 1, BIFPN_CHANNELS))(pooled_feature)  # Reshape for Conv2D compatibility
+pooled_feature = layers.Reshape((1, 1, BIFPN_CHANNELS))(pooled_feature)
 
 def detection_head_single(feature, num_classes, max_detections):
     x = layers.Conv2D(64, 3, padding='same', activation='relu')(feature)
@@ -84,7 +84,6 @@ def detection_head_single(feature, num_classes, max_detections):
     # Output shape: (batch_size, 1, 1, max_detections * num_classes) for class logits
     class_logits = layers.Conv2D(max_detections * num_classes, 1, activation='linear')(x)
     class_logits = layers.Reshape((max_detections, num_classes))(class_logits)
-    # Use Lambda layers for TensorFlow ops
     scores = layers.Lambda(lambda t: tf.reduce_max(tf.nn.sigmoid(t), axis=-1))(class_logits)
     classes = class_logits
     num_detections = layers.Lambda(lambda t: tf.fill([tf.shape(t)[0], 1], max_detections))(box_out)
@@ -164,7 +163,7 @@ model.fit(dataset, epochs=20)
 # Save the model
 model.export("effdet_like_model")
 converter = tf.lite.TFLiteConverter.from_saved_model("effdet_like_model")
-converter.optimizations = [tf.lite.Optimize.DEFAULT]  # Optional: enables size/performance optimization
+converter.optimizations = [tf.lite.Optimize.DEFAULT] 
 tflite_model = converter.convert()
 with open("effdet_like_model.tflite", "wb") as f:
     f.write(tflite_model)
