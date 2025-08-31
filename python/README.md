@@ -15,3 +15,6 @@ To run the scripts simply do:
 ```
 python path/to/script.py
 ```
+
+## Important Notice
+With `yolo.py` script running, it is important to note that the object detected as well as the position of where the script (based on the IP address) is ran is uploaded to the cloud service.
