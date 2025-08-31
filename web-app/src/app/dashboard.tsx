@@ -61,10 +61,8 @@ export default function Dashboard() {
 
   // Always filter using current timeGrouping and full entries list
   const handleBarClick = (timeKey: string, category: string) => {
-    console.log('----')
     const filtered = entries.filter(entry => {
       const entryTimeKey = getTimeGroupKey(new Date(entry.timestamp), timeGrouping);
-      console.log(timeKey)
       return entryTimeKey === timeKey && entry.category === category;
     });
     setFilteredEntries(filtered);
