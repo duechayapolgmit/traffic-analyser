@@ -71,6 +71,10 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
     const { timeGroups, categories } = getGroupedData();
     const sortedTimeKeys = Object.keys(timeGroups).sort();
     const timeLabels = sortedTimeKeys;
+    // Calculate total count for each time group
+    const timeGroupCounts = sortedTimeKeys.map(timeKey => {
+      return categories.reduce((sum, cat) => sum + (timeGroups[timeKey][cat] || 0), 0);
+    });
 
     const datasets = categories.map((category, index) => ({
       label: category,
@@ -113,6 +117,17 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
             title: {
               display: true,
               text: 'Time'
+            },
+            ticks: {
+              callback: function(value, index) {
+                // Show time label and count below
+                const label = timeLabels[index];
+                const count = timeGroupCounts[index];
+                return label + ' (' + count + ')';
+              },
+              font: {
+                size: 12
+              }
             }
           },
           y: {
