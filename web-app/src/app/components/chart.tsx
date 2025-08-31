@@ -44,7 +44,7 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
 
     initialEntries.forEach(entry => {
       const date = new Date(entry.timestamp);
-      let timeKey: string = getTimeGroupKey(date, timeGrouping);
+      const timeKey: string = getTimeGroupKey(date, timeGrouping);
 
       if (!timeGroups[timeKey]) {
         timeGroups[timeKey] = {};
