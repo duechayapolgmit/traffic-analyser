@@ -129,6 +129,9 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
             display: true,
             text: `Items per Category (Grouped by ${timeGrouping.replace('min', '-minute').replace('1hour', '1-hour')})`
           },
+            legend: {
+              display: false
+            },
           tooltip: {
             callbacks: {
               label: context => `${context.dataset.label}: ${context.parsed.y} items`,
@@ -174,7 +177,7 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
 
       <div className="mb-4 flex gap-4 items-center flex-wrap">
         <div className="text-sm text-gray-600">
-          Total entries: {initialEntries.length} | Categories: {Array.from(new Set(initialEntries.map(e => e.category))).join(', ')}
+          Total entries: {initialEntries.length}
         </div>
       </div>
 

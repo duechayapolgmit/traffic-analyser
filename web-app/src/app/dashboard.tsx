@@ -60,13 +60,13 @@ export default function Dashboard() {
   const memoizedEntries = useMemo(() => entries, [entries]);
 
   // Always filter using current timeGrouping and full entries list
-  const handleBarClick = (timeKey: string, category: string) => {
+  const handleBarClick = (timeKey: string, _category: string) => {
     const filtered = entries.filter(entry => {
       const entryTimeKey = getTimeGroupKey(new Date(entry.timestamp), timeGrouping);
-      return entryTimeKey === timeKey && entry.category === category;
+      return entryTimeKey === timeKey;
     });
     setFilteredEntries(filtered);
-    setFilterLabel(`${timeKey} - ${category}`);
+    setFilterLabel(timeKey);
   };
 
   return (
