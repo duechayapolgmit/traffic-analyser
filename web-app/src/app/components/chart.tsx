@@ -12,6 +12,7 @@ import {
   Tooltip,
   Legend
 } from "chart.js";
+import { getTimeGroupKey, TimeGrouping } from "../util/timeGroup";
 
 Chart.register([
   CategoryScale,
@@ -25,7 +26,7 @@ Chart.register([
 
 interface CategoryTimeChartProps {
   initialEntries: Entry[];
-  timeGrouping: '1min' | '5min' | '15min' | '30min' | '1hour';
+  timeGrouping: TimeGrouping;
   onBarClick?: (timeKey: string, category: string) => void;
 }
 
@@ -43,28 +44,7 @@ export default function CategoryTimeChart({ initialEntries, timeGrouping, onBarC
 
     initialEntries.forEach(entry => {
       const date = new Date(entry.timestamp);
-      const minutes = date.getMinutes();
-      let timeKey: string;
-
-      switch (timeGrouping) {
-        case '1min':
-          timeKey = `${date.toDateString()} ${date.getHours()}:${minutes.toString().padStart(2, '0')}`;
-          break;
-        case '5min':
-          timeKey = `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 5) * 5}`;
-          break;
-        case '15min':
-          timeKey = `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 15) * 15}`;
-          break;
-        case '30min':
-          timeKey = `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 30) * 30}`;
-          break;
-        case '1hour':
-          timeKey = `${date.toDateString()} ${date.getHours()}:00`;
-          break;
-        default:
-          timeKey = date.toDateString();
-      }
+      let timeKey: string = getTimeGroupKey(date, timeGrouping);
 
       if (!timeGroups[timeKey]) {
         timeGroups[timeKey] = {};

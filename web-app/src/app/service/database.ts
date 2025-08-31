@@ -20,6 +20,6 @@ export const fetchEntries = async (): Promise<Entry[]> => {
     return data;
   } catch (error) {
     console.error('Fetch failed:', error);
-    throw error; // Re-throw to let the component handle it
+    throw error;
   }
 };

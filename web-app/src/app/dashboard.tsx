@@ -4,27 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import CategoryTimeChart from './components/chart';
 import EntriesTable from './components/entries';
 import { Entry, fetchEntries } from './service/database';
-
-export type TimeGrouping = '1min' | '5min' | '15min' | '30min' | '1hour';
-
-// Helper to get time group key
-function getTimeGroupKey(date: Date, timeGrouping: TimeGrouping) {
-  const minutes = date.getMinutes();
-  switch (timeGrouping) {
-    case '1min':
-      return `${date.toDateString()} ${date.getHours()}:${minutes.toString().padStart(2, '0')}`;
-    case '5min':
-      return `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 5) * 5}`;
-    case '15min':
-      return `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 15) * 15}`;
-    case '30min':
-      return `${date.toDateString()} ${date.getHours()}:${Math.floor(minutes / 30) * 30}`;
-    case '1hour':
-      return `${date.toDateString()} ${date.getHours()}:00`;
-    default:
-      return date.toDateString();
-  }
-}
+import { getTimeGroupKey, TimeGrouping } from './util/timeGroup';
 
 // Deep comparison helper
 const areEntriesEqual = (entries1: Entry[], entries2: Entry[]): boolean => {
