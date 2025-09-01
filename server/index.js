@@ -23,8 +23,6 @@ const Item = mongoose.model('item', new mongoose.Schema({
 
 // MongoDB stuff
 app.post('/api/data', async (req, res) => {
-    // Convert UNIX time to Date
-    let date = new Date(req.body.timestamp)
     const item = new Item(req.body);
     try {
         const savedItem = await item.save();
