@@ -6,7 +6,7 @@ This is an [Expo](https://expo.dev) React Native application, served as the obje
 - Display the FPS (frames per second) of the camera feed as well as the mean confidence score throughout each of the predictions.
 
 ## Setting Up and Running
-To start, the libaries required to run are to be instealled using the following command:
+To start, the libaries required to run are to be installed using the following command:
 ```
 npm install
 ```
