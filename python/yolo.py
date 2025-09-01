@@ -6,7 +6,8 @@ import requests
 # Params
 URL = 'http://52.18.101.172:5000/api/data'
 DIRECTION_THRESHOLD = 5
-FRAME_THRESHOLD = 10 # grace period
+FRAME_THRESHOLD = 10                            # grace period
+SOURCE = 0           # sources - video location or webcam (number e.g. 0)
 
 # Class for the objects:
 class Obj:
@@ -38,6 +39,7 @@ def send_data(obj):
                     'direction': direction}
 
     # Send to Server
+    print(obj_to_send)
     requests.post(URL, json=obj_to_send)
     print('New object sent: ', class_name, obj.timestamp, latitude, longitude, direction)
 
@@ -45,67 +47,106 @@ def send_data(obj):
 model = YOLO("yolo11n.pt")
 prev_objs = []
 
+# Confidence
+confidence_sum = 0
+confidence_count = 0
+
+# FPS
+frame_count = 0
+start_time = time.time()
+
 # Run inference
-results = model.track(source=0, show= True, tracker="bytetrack.yaml", conf=0.5, stream=True, verbose=False) # 1 = Logitech Webcam
+results = model.track(source=SOURCE, show= True, tracker="bytetrack.yaml", conf=0.5, stream=True, verbose=False) # 1 = Logitech Webcam
 
 # Tracking and results
-for result in results:
-    # Current frame data
-    curr_ids = result.boxes.id
-    curr_classes = result.boxes.cls
-    curr_boxes = result.boxes.xywh
-    curr_objs = []
+try:
+    for result in results:
+        # Update FPS
+        frame_count += 1
 
-    # Previous frame data
-    prev_objs_dict = {obj.id: obj for obj in prev_objs}
+        # Current frame data
+        curr_ids = result.boxes.id
+        curr_classes = result.boxes.cls
+        curr_boxes = result.boxes.xywh
+        curr_objs = []
 
-    # Check the current frame
-    if curr_ids is not None: # If current frame doesn't have any objects, assumed that all the previous objects are gone
-        for i in range(len(curr_ids)):
-            # Get current object's data
-            curr_id = int(curr_ids[i])
-            curr_centre = curr_boxes[i][0].item()
-            curr_cls = int(curr_classes[i])
+        # Previous frame data
+        prev_objs_dict = {obj.id: obj for obj in prev_objs}
 
-            # Detect if same as one of the previous ones or not - if yes, check direction and update
-            if curr_id in prev_objs_dict:
-                prev_obj = prev_objs_dict[curr_id]
+        # Check the current frame
+        if curr_ids is not None: # If current frame doesn't have any objects, assumed that all the previous objects are gone
+            for i in range(len(curr_ids)):
+                # Get current object's data
+                curr_id = int(curr_ids[i])
+                curr_centre = curr_boxes[i][0].item()
+                curr_cls = int(curr_classes[i])
 
-                # Get direction
-                if curr_centre > prev_obj.centre + DIRECTION_THRESHOLD:
-                    prev_obj.direction['RIGHT'] += 1
-                elif curr_centre < prev_obj.centre - DIRECTION_THRESHOLD:
-                    prev_obj.direction['LEFT'] += 1
-                else:
-                    prev_obj.direction[prev_obj.previous_direction] += 1
+                # Detect if same as one of the previous ones or not - if yes, check direction and update
+                if curr_id in prev_objs_dict:
+                    prev_obj = prev_objs_dict[curr_id]
 
-                # Update
-                prev_obj.centre = curr_centre
-                prev_obj.grace = 0
-                curr_objs.append(prev_obj)
-            else: # If it's not the same object -> it's a new one, so create a new object
-                new_obj = Obj(curr_id, timestamp=int(time.time()*1000), cls=curr_cls, centre=curr_centre)
-                new_obj.direction['STILL'] += 1
-                curr_objs.append(new_obj)
+                    # Get direction
+                    if curr_centre > prev_obj.centre + DIRECTION_THRESHOLD:
+                        prev_obj.direction['RIGHT'] += 1
+                    elif curr_centre < prev_obj.centre - DIRECTION_THRESHOLD:
+                        prev_obj.direction['LEFT'] += 1
+                    else:
+                        prev_obj.direction[prev_obj.previous_direction] += 1
 
-    # Check the previous frame
-    add_back = []
-    if prev_objs:
-        for prev_obj in prev_objs:
-            exist = False
-            for curr_obj in curr_objs:
-                if prev_obj.id == curr_obj.id:
-                    exist = True
-                    break
-            if not exist:
-                if prev_obj.grace <= FRAME_THRESHOLD:
-                    prev_obj.grace = prev_obj.grace + 1
-                    add_back.append(prev_obj)
-                else:
-                    send_data(prev_obj) # If doesn't exist in the current frame anymore and passed the grace period - send the data
-    
-    # Add back the previous frame object - if any exists
-    for ab in add_back:
-        curr_objs.append(ab)
+                    # Update
+                    prev_obj.centre = curr_centre
+                    prev_obj.grace = 0
+                    curr_objs.append(prev_obj)
+                else: # If it's not the same object -> it's a new one, so create a new object
+                    new_obj = Obj(curr_id, timestamp=int(time.time()*1000), cls=curr_cls, centre=curr_centre)
+                    new_obj.direction['STILL'] += 1
+                    curr_objs.append(new_obj)
 
-    prev_objs = curr_objs.copy()
+        # Check the previous frame
+        add_back = []
+        if prev_objs:
+            for prev_obj in prev_objs:
+                exist = False
+                for curr_obj in curr_objs:
+                    if prev_obj.id == curr_obj.id:
+                        exist = True
+                        break
+                if not exist:
+                    if prev_obj.grace <= FRAME_THRESHOLD:
+                        prev_obj.grace = prev_obj.grace + 1
+                        add_back.append(prev_obj)
+                    #else:
+                    #    send_data(prev_obj) # If doesn't exist in the current frame anymore and passed the grace period - send the data
+        
+        # Add back the previous frame object - if any exists
+        for ab in add_back:
+            curr_objs.append(ab)
+
+        prev_objs = curr_objs.copy()
+
+        # Accumulate confidence if available
+        conf_data = result.boxes.conf
+        for conf in conf_data:
+            confidence_sum += conf
+            confidence_count += 1
+
+except KeyboardInterrupt:
+    print('Prediction stopped.')
+
+## Summary
+print('Summary: ')
+# Calculate FPS
+end_time = time.time()
+total_time = end_time - start_time
+if frame_count > 0 and total_time > 0:
+    avg_fps = frame_count / total_time
+    print(f"\n- Average FPS: {avg_fps:.2f}")
+else:
+    print("\n- No FPS data collected.")
+
+# Calculate confidence
+if confidence_count > 0:
+    mean_confidence = confidence_sum / confidence_count
+    print(f"\n- Accumulative confidence: {mean_confidence:.4f}")
+else:
+    print("\n- No confidence data collected.")
